@@ -1,0 +1,173 @@
+{
+  "_note": "handlab settings. Edit freely; a wrong value falls back to its default. Delete the file to restore every default.",
+  "robot": {
+    "urdf": "assets/h4nd_left/h4nd_left.urdf"
+  },
+  "world": {
+    "timestep": 0.002,
+    "hand_position": [0.0, 0.0, 0.2],
+    "hand_orientation": "upright",
+    "encoder_rgba": [0.92, 0.92, 0.95, 1.0],
+    "encoder_emission": 0.0,
+    "command_rgba": [0.6, 0.28, 0.95, 0.4],
+    "command_emission": 0.0
+  },
+  "control": {
+    "max_speed": 8.0
+  },
+  "hardware": {
+    "port": "/dev/cu.usbserial-FT8J0X9Y",
+    "baudrate": 4000000,
+    "command_hz": 100.0,
+    "read_hz": 20.0,
+    "current_limit_ma": 300,
+    "profile_velocity": 0,
+    "profile_acceleration": 0,
+    "position_p": 250,
+    "position_i": 0,
+    "position_d": 600,
+    "temp_derate_c": 45.0,
+    "temp_cutoff_c": 60.0,
+    "motors": {
+      "index_adduction_joint": {
+        "id": 1,
+        "sign": 1,
+        "zero": 2048
+      },
+      "index_proximal_joint": {
+        "id": 2,
+        "sign": -1,
+        "zero": 2048
+      },
+      "index_middle_joint": {
+        "id": 3,
+        "sign": -1,
+        "zero": 2048
+      },
+      "index_distal_joint": {
+        "id": 4,
+        "sign": -1,
+        "zero": 2048
+      },
+      "middle_adduction_joint": {
+        "id": 5,
+        "sign": 1,
+        "zero": 2048
+      },
+      "middle_proximal_joint": {
+        "id": 6,
+        "sign": -1,
+        "zero": 2048
+      },
+      "middle_middle_joint": {
+        "id": 7,
+        "sign": -1,
+        "zero": 2048
+      },
+      "middle_distal_joint": {
+        "id": 8,
+        "sign": -1,
+        "zero": 2048
+      },
+      "ring_adduction_joint": {
+        "id": 9,
+        "sign": 1,
+        "zero": 2048
+      },
+      "ring_proximal_joint": {
+        "id": 10,
+        "sign": -1,
+        "zero": 2048
+      },
+      "ring_middle_joint": {
+        "id": 11,
+        "sign": -1,
+        "zero": 2048
+      },
+      "ring_distal_joint": {
+        "id": 12,
+        "sign": -1,
+        "zero": 2048
+      },
+      "thumb_proximal_joint": {
+        "id": 13,
+        "sign": 1,
+        "zero": 2048
+      },
+      "thumb_adduction_joint": {
+        "id": 14,
+        "sign": -1,
+        "zero": 2048
+      },
+      "thumb_middle_joint": {
+        "id": 15,
+        "sign": -1,
+        "zero": 2048
+      },
+      "thumb_distal_joint": {
+        "id": 16,
+        "sign": -1,
+        "zero": 2048
+      }
+    }
+  },
+  "motion_presets": {
+    "smooth": {
+      "max_speed": 4.8,
+      "profile_velocity": 200,
+      "profile_acceleration": 20
+    },
+    "fast": {
+      "max_speed": 7.2,
+      "profile_velocity": 300,
+      "profile_acceleration": 80
+    },
+    "real time": {
+      "max_speed": 8.0,
+      "profile_velocity": 0,
+      "profile_acceleration": 0
+    }
+  },
+  "object": {
+    "enabled": true,
+    "mode": "fixed",
+    "size_mm": [55.0, 55.0, 55.0],
+    "mass_g": 30.0,
+    "friction": 0.5,
+    "position_mm": [27.0, 12.0, 62.0],
+    "rgba": [0.95, 0.62, 0.2, 1.0]
+  },
+  "vision": {
+    "enabled": false,
+    "camera_index": 0,
+    "capture_width": 640,
+    "capture_height": 480,
+    "mirror": true,
+    "max_hands": 2,
+    "min_detection": 0.5,
+    "min_tracking": 0.5,
+    "model": "assets/models/hand_landmarker.task"
+  },
+  "recording": {
+    "folder": "data/tasks",
+    "task": "untitled"
+  },
+  "segment": {
+    "model": "facebook/sam2.1-hiera-small"
+  },
+  "assistant": {
+    "provider": "claude",
+    "claude_model": "claude-opus-5-5",
+    "claude_effort": "medium",
+    "openai_model": "gpt-6-astra",
+    "max_tokens": 16000,
+    "image_max_side": 1024,
+    "clip_frames": 16,
+    "system_prompt": "You describe what a person is doing in camera footage of their hands handling objects. Your description becomes the task specification for teaching a robot hand the same task: object names are used as prompts for a segmentation model, boxes start tracking the objects, and phases split the recording into steps. Describe the task by what happens to the objects - where they go, how they turn, how they end up - not by how the fingers move. Name objects by what can be seen. When the images do not show something clearly, say so under uncertain instead of guessing."
+  },
+  "viewer": {
+    "width": 1500,
+    "height": 950,
+    "max_fps": 60
+  }
+}

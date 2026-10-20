@@ -1,0 +1,1534 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="nst_hand">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.0119358669710733 -0.00184895956226738 -0.0331802255465314"
+        rpy="0 0 0" />
+      <mass
+        value="0.622259144544332" />
+      <inertia
+        ixx="0.000750935626787906"
+        ixy="0.000101008437858638"
+        ixz="-0.000185692127517588"
+        iyy="0.00194300512627775"
+        iyz="-2.05626265078879E-05"
+        izz="0.00212802556515514" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="index_link_1">
+    <inertial>
+      <origin
+        xyz="-0.0016693422761731 0.00236537600757059 -0.034480501998271"
+        rpy="0 0 0" />
+      <mass
+        value="0.0615748588073887" />
+      <inertia
+        ixx="6.08813742064294E-06"
+        ixy="7.12079581229641E-08"
+        ixz="2.43769098757292E-06"
+        iyy="1.16737252570503E-05"
+        iyz="-1.93104868306499E-07"
+        izz="1.164026198993E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/index_link_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/index_link_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="index_joint_0"
+    type="revolute">
+    <origin
+      xyz="0.080067 0.024127 -0.0154"
+      rpy="0 0 3.1416" />
+    <parent
+      link="base_link" />
+    <child
+      link="index_link_1" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="index_link_2">
+    <inertial>
+      <origin
+        xyz="-0.0385999999016269 -3.59712259978551E-14 -0.0126306421805957"
+        rpy="0 0 0" />
+      <mass
+        value="0.0496973809511769" />
+      <inertia
+        ixx="2.88043180434972E-06"
+        ixy="3.48562726055986E-09"
+        ixz="2.49876811444213E-20"
+        iyy="5.19343387499343E-06"
+        iyz="1.09495167282059E-14"
+        izz="5.70362375931246E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/index_link_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/index_link_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="index_joint_1"
+    type="revolute">
+    <origin
+      xyz="0 -0.0136 -0.0531"
+      rpy="1.5708 0 0" />
+    <parent
+      link="index_link_1" />
+    <child
+      link="index_link_2" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.5708"
+      upper="0.261799"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="index_link_3">
+    <inertial>
+      <origin
+        xyz="0.0412977513276576 -1.95560712121789E-05 -0.0111817172353293"
+        rpy="0 0 0" />
+      <mass
+        value="0.0314924865667651" />
+      <inertia
+        ixx="1.82101909590458E-06"
+        ixy="1.74280390205196E-09"
+        ixz="-7.51781436610697E-08"
+        iyy="3.08104391577348E-06"
+        iyz="-1.89975023046306E-09"
+        izz="3.42243823454995E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/index_link_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/index_link_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="index_joint_2"
+    type="revolute">
+    <origin
+      xyz="-0.0772 0 0"
+      rpy="0 0 3.1416" />
+    <parent
+      link="index_link_2" />
+    <child
+      link="index_link_3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="index_link_4">
+    <inertial>
+      <origin
+        xyz="0.0093195004188531 2.5206792209076E-10 -0.0208026839335783"
+        rpy="0 0 0" />
+      <mass
+        value="0.0258442413040249" />
+      <inertia
+        ixx="8.44322069157084E-07"
+        ixy="-5.7247926546763E-15"
+        ixz="1.59976225884509E-09"
+        iyy="1.89982293446447E-06"
+        iyz="1.5296482451552E-14"
+        izz="2.35375161254207E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/index_link_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/index_link_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="index_joint_3"
+    type="revolute">
+    <origin
+      xyz="0.06208 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="index_link_3" />
+    <child
+      link="index_link_4" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="index_tip_link">
+    <inertial>
+      <origin
+        xyz="-0.00369671664121052 -1.06133271060571E-08 -0.01096411608313"
+        rpy="0 0 0" />
+      <mass
+        value="0.0049527527458423" />
+      <inertia
+        ixx="3.91697352017709E-07"
+        ixy="2.0168388423532E-14"
+        ixz="-1.08235831715591E-08"
+        iyy="2.86007209736852E-07"
+        iyz="5.63089520402907E-13"
+        izz="2.21616278770254E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/index_tip_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/index_tip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="index_fixed_joint"
+    type="fixed">
+    <origin
+      xyz="0.045748 0.0043223 -0.0136"
+      rpy="1.5708 0 1.5708" />
+    <parent
+      link="index_link_4" />
+    <child
+      link="index_tip_link" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="-1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="thumb_link_1">
+    <inertial>
+      <origin
+        xyz="-0.00166934888386505 0.00236535892798728 -0.0344804967840245"
+        rpy="0 0 0" />
+      <mass
+        value="0.0615748758569658" />
+      <inertia
+        ixx="6.08815277104593E-06"
+        ixy="7.12058890198812E-08"
+        ixz="2.43768895072764E-06"
+        iyy="1.16737236818306E-05"
+        iyz="-1.93103590471922E-07"
+        izz="1.16402797270707E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/thumb_link_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/thumb_link_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="thumb_joint_0"
+    type="revolute">
+    <origin
+      xyz="-0.065356 0.058273 -0.072591"
+      rpy="1.2989 -0.22166 -2.2385" />
+    <parent
+      link="base_link" />
+    <child
+      link="thumb_link_1" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="thumb_link_2">
+    <inertial>
+      <origin
+        xyz="-0.038600000817939 1.14910581050509E-10 -0.0126306421627538"
+        rpy="0 0 0" />
+      <mass
+        value="0.049697409136333" />
+      <inertia
+        ixx="2.88043268097693E-06"
+        ixy="3.48562480247843E-09"
+        ixz="2.64427341043889E-14"
+        iyy="5.1934342316225E-06"
+        iyz="5.58703450816617E-15"
+        izz="5.70362416186415E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/thumb_link_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/thumb_link_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="thumb_joint_1"
+    type="revolute">
+    <origin
+      xyz="0 -0.0136 -0.0531"
+      rpy="1.5708 0 0" />
+    <parent
+      link="thumb_link_1" />
+    <child
+      link="thumb_link_2" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.5708"
+      upper="0.261799"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="thumb_link_3">
+    <inertial>
+      <origin
+        xyz="0.0288495380901106 -1.21338169199459E-05 -0.0167929013131243"
+        rpy="0 0 0" />
+      <mass
+        value="0.0507564853718653" />
+      <inertia
+        ixx="2.28678447834936E-06"
+        ixy="1.74279034563023E-09"
+        ixz="-8.24701858447821E-08"
+        iyy="4.44666834027628E-06"
+        iyz="-1.89992728394459E-09"
+        izz="5.15364559011538E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/thumb_link_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/thumb_link_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="thumb_joint_2"
+    type="revolute">
+    <origin
+      xyz="-0.0772 0 0"
+      rpy="0 0 3.1416" />
+    <parent
+      link="thumb_link_2" />
+    <child
+      link="thumb_link_3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="thumb_link_4">
+    <inertial>
+      <origin
+        xyz="0.0093195045415897 2.22668550264871E-10 -0.0208026813878397"
+        rpy="0 0 0" />
+      <mass
+        value="0.0258442267864264" />
+      <inertia
+        ixx="8.44322062948566E-07"
+        ixy="-8.02702920109141E-15"
+        ixz="1.59970219281724E-09"
+        iyy="1.89982225780558E-06"
+        iyz="1.59875904165577E-14"
+        izz="2.35375094354999E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/thumb_link_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/thumb_link_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="thumb_joint_3"
+    type="revolute">
+    <origin
+      xyz="0.06208 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="thumb_link_3" />
+    <child
+      link="thumb_link_4" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="thumb_tip_link">
+    <inertial>
+      <origin
+        xyz="-0.00369671776557429 -1.34191007195028E-08 -0.010964115593086"
+        rpy="0 0 0" />
+      <mass
+        value="0.00495275189931571" />
+      <inertia
+        ixx="3.91697295900588E-07"
+        ixy="-1.76888847459779E-13"
+        ixz="-1.08235837989558E-08"
+        iyy="2.86007385638042E-07"
+        iyz="8.45905767950251E-13"
+        izz="2.21616363284476E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/thumb_tip_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/thumb_tip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="thumb_fixed_joint"
+    type="fixed">
+    <origin
+      xyz="0.045748 0.0043223 -0.0136"
+      rpy="1.5708 0 1.5708" />
+    <parent
+      link="thumb_link_4" />
+    <child
+      link="thumb_tip_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="middle_link_1">
+    <inertial>
+      <origin
+        xyz="-0.00166934227617321 0.00236537600757059 -0.0344805019982717"
+        rpy="0 0 0" />
+      <mass
+        value="0.0615748588073887" />
+      <inertia
+        ixx="6.08813742064303E-06"
+        ixy="7.12079581229992E-08"
+        ixz="2.43769098757298E-06"
+        iyy="1.16737252570504E-05"
+        iyz="-1.93104868306526E-07"
+        izz="1.16402619899301E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/middle_link_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/middle_link_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="middle_joint_0"
+    type="revolute">
+    <origin
+      xyz="0.094447 -0.021873 -0.0154"
+      rpy="0 0 3.1416" />
+    <parent
+      link="base_link" />
+    <child
+      link="middle_link_1" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="middle_link_2">
+    <inertial>
+      <origin
+        xyz="-0.0385999999016267 -3.5527136788005E-14 -0.0126306421805955"
+        rpy="0 0 0" />
+      <mass
+        value="0.0496973809511768" />
+      <inertia
+        ixx="2.88043180434972E-06"
+        ixy="3.48562726056496E-09"
+        ixz="2.15355753178077E-20"
+        iyy="5.19343387499343E-06"
+        iyz="1.0949520386652E-14"
+        izz="5.70362375931246E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/middle_link_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/middle_link_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="middle_joint_1"
+    type="revolute">
+    <origin
+      xyz="0 -0.0136 -0.0531"
+      rpy="1.5708 0 0" />
+    <parent
+      link="middle_link_1" />
+    <child
+      link="middle_link_2" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.5708"
+      upper="0.261799"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="middle_link_3">
+    <inertial>
+      <origin
+        xyz="0.0288495281828582 -1.21337942091682E-05 -0.016792904871813"
+        rpy="0 0 0" />
+      <mass
+        value="0.0507564850361021" />
+      <inertia
+        ixx="2.28678404408619E-06"
+        ixy="1.74280790550133E-09"
+        ixz="-8.24700846395668E-08"
+        iyy="4.44666879413222E-06"
+        iyz="-1.89975067689009E-09"
+        izz="5.15364599663697E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/middle_link_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/middle_link_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="middle_joint_2"
+    type="revolute">
+    <origin
+      xyz="-0.0772 0 0"
+      rpy="0 0 3.1416" />
+    <parent
+      link="middle_link_2" />
+    <child
+      link="middle_link_3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="middle_link_4">
+    <inertial>
+      <origin
+        xyz="0.00931950041885221 2.52067700046155E-10 -0.0208026839335784"
+        rpy="0 0 0" />
+      <mass
+        value="0.0258442413040249" />
+      <inertia
+        ixx="8.44322069157075E-07"
+        ixy="-5.72479287253848E-15"
+        ixz="1.59976225884761E-09"
+        iyy="1.89982293446447E-06"
+        iyz="1.52964840661503E-14"
+        izz="2.35375161254208E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/middle_link_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/middle_link_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="middle_joint_3"
+    type="revolute">
+    <origin
+      xyz="0.06208 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="middle_link_3" />
+    <child
+      link="middle_link_4" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="middle_tip_link">
+    <inertial>
+      <origin
+        xyz="-0.00369671664121052 -1.06133273281017E-08 -0.0109641160831295"
+        rpy="0 0 0" />
+      <mass
+        value="0.00495275274584214" />
+      <inertia
+        ixx="3.91697352017697E-07"
+        ixy="2.01683867584426E-14"
+        ixz="-1.08235831715568E-08"
+        iyy="2.86007209736843E-07"
+        iyz="5.63089520029292E-13"
+        izz="2.21616278770246E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/middle_tip_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/middle_tip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="middle_fixed_joint"
+    type="fixed">
+    <origin
+      xyz="0.045748 0.0043223 -0.0136"
+      rpy="1.5708 0 1.5708" />
+    <parent
+      link="middle_link_4" />
+    <child
+      link="middle_tip_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="palm_link">
+    <inertial>
+      <origin
+        xyz="0.0574298924050231 -0.0332474640178182 -0.044808384928078"
+        rpy="0 0 0" />
+      <mass
+        value="0.37830123697012" />
+      <inertia
+        ixx="0.000762630422824067"
+        ixy="1.29769553175267E-05"
+        ixz="-1.83753800647546E-05"
+        iyy="0.000751741322190961"
+        iyz="0.000107465595415442"
+        izz="0.000325442837960736" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/palm_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/palm_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="palm_joint"
+    type="revolute">
+    <origin
+      xyz="0.031667 -0.021873 -0.068501"
+      rpy="-1.5708 1.5708 -1.5708" />
+    <parent
+      link="base_link" />
+    <child
+      link="palm_link" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.5708"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="ring_link_1">
+    <inertial>
+      <origin
+        xyz="-0.00166934221958348 0.00236537577174745 -0.0344805014417842"
+        rpy="0 0 0" />
+      <mass
+        value="0.0615748578806717" />
+      <inertia
+        ixx="6.0881376847236E-06"
+        ixy="7.12079755181029E-08"
+        ixz="2.43769116388518E-06"
+        iyy="1.16737250363878E-05"
+        iyz="-1.93105058508244E-07"
+        izz="1.16402618367267E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/ring_link_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/ring_link_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="ring_joint_0"
+    type="revolute">
+    <origin
+      xyz="0.04328 -0.0531 0.03768"
+      rpy="1.5708 1.5708 0" />
+    <parent
+      link="palm_link" />
+    <child
+      link="ring_link_1" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="ring_link_2">
+    <inertial>
+      <origin
+        xyz="-0.0385999999585929 -9.74376135332022E-12 -0.0126306421900031"
+        rpy="0 0 0" />
+      <mass
+        value="0.0496973808802531" />
+      <inertia
+        ixx="2.88043180066722E-06"
+        ixy="3.48563706473712E-09"
+        ixz="3.69250902409407E-16"
+        iyy="5.19343387375735E-06"
+        iyz="1.09955866276703E-14"
+        izz="5.70362374830979E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/ring_link_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/ring_link_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="ring_joint_1"
+    type="revolute">
+    <origin
+      xyz="0 -0.0136 -0.0531"
+      rpy="1.5708 0 0" />
+    <parent
+      link="ring_link_1" />
+    <child
+      link="ring_link_2" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.5708"
+      upper="0.261799"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="ring_link_3">
+    <inertial>
+      <origin
+        xyz="0.0288495288569937 -1.2133777651524E-05 -0.0167929046689539"
+        rpy="0 0 0" />
+      <mass
+        value="0.0507564837610567" />
+      <inertia
+        ixx="2.28678404176781E-06"
+        ixy="1.74281488110507E-09"
+        ixz="-8.24701002362134E-08"
+        iyy="4.44666873410161E-06"
+        iyz="-1.89974853358904E-09"
+        izz="5.15364593375577E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/ring_link_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/ring_link_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="ring_joint_2"
+    type="revolute">
+    <origin
+      xyz="-0.0772 0 0"
+      rpy="0 0 3.1416" />
+    <parent
+      link="ring_link_2" />
+    <child
+      link="ring_link_3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="ring_link_4">
+    <inertial>
+      <origin
+        xyz="0.00931950079229615 2.61002774948338E-10 -0.0208026837260887"
+        rpy="0 0 0" />
+      <mass
+        value="0.0258442400233152" />
+      <inertia
+        ixx="8.44322067871024E-07"
+        ixy="-4.3571310972012E-15"
+        ixz="1.5997545871896E-09"
+        iyy="1.89982287129972E-06"
+        iyz="1.50977467797141E-14"
+        izz="2.35375155074036E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/ring_link_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/ring_link_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="ring_joint_3"
+    type="revolute">
+    <origin
+      xyz="0.06208 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="ring_link_3" />
+    <child
+      link="ring_link_4" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="ring_tip_link">
+    <inertial>
+      <origin
+        xyz="-0.00369671689660933 -1.03744156598751E-08 -0.0109641155797036"
+        rpy="0 0 0" />
+      <mass
+        value="0.0049527534175264" />
+      <inertia
+        ixx="3.9169743612533E-07"
+        ixy="4.86466029551317E-14"
+        ixz="-1.08235595536291E-08"
+        iyy="2.86007272520896E-07"
+        iyz="5.23817968954204E-13"
+        izz="2.21616297092367E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/ring_tip_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/ring_tip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="ring_fixed_joint"
+    type="fixed">
+    <origin
+      xyz="0.045748 0.0043223 -0.0136"
+      rpy="1.5708 0 1.5708" />
+    <parent
+      link="ring_link_4" />
+    <child
+      link="ring_tip_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="pinky_link_1">
+    <inertial>
+      <origin
+        xyz="-0.00166934221958348 0.00236537577181695 -0.0344805014417338"
+        rpy="0 0 0" />
+      <mass
+        value="0.06157485788067" />
+      <inertia
+        ixx="6.08813768472339E-06"
+        ixy="7.12079755180873E-08"
+        ixz="2.43769116388501E-06"
+        iyy="1.16737250363871E-05"
+        iyz="-1.93105058508228E-07"
+        izz="1.1640261836726E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/pinky_link_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/pinky_link_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="pinky_joint_0"
+    type="revolute">
+    <origin
+      xyz="0.08728 -0.0531 0.0114"
+      rpy="1.5708 1.5708 0" />
+    <parent
+      link="palm_link" />
+    <child
+      link="pinky_link_1" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="pinky_link_2">
+    <inertial>
+      <origin
+        xyz="-0.0385999999585924 -9.74376135332022E-12 -0.0126306421900034"
+        rpy="0 0 0" />
+      <mass
+        value="0.0496973808802531" />
+      <inertia
+        ixx="2.88043180066723E-06"
+        ixy="3.4856370647466E-09"
+        ixz="3.69259303443149E-16"
+        iyy="5.19343387375734E-06"
+        iyz="1.09955905451977E-14"
+        izz="5.70362374830979E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/pinky_link_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/pinky_link_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="pinky_joint_1"
+    type="revolute">
+    <origin
+      xyz="0 -0.0136 -0.0531"
+      rpy="1.5708 0 0" />
+    <parent
+      link="pinky_link_1" />
+    <child
+      link="pinky_link_2" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.5708"
+      upper="0.261799"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="pinky_link_3">
+    <inertial>
+      <origin
+        xyz="0.0288495288569934 -1.21337776008978E-05 -0.0167929046688849"
+        rpy="0 0 0" />
+      <mass
+        value="0.0507564837610572" />
+      <inertia
+        ixx="2.28678404176783E-06"
+        ixy="1.74281488111536E-09"
+        ixz="-8.24701002362124E-08"
+        iyy="4.44666873410167E-06"
+        iyz="-1.89974853359011E-09"
+        izz="5.15364593375584E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/pinky_link_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/pinky_link_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="pinky_joint_2"
+    type="revolute">
+    <origin
+      xyz="-0.0772 0 0"
+      rpy="0 0 3.1416" />
+    <parent
+      link="pinky_link_2" />
+    <child
+      link="pinky_link_3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="pinky_link_4">
+    <inertial>
+      <origin
+        xyz="0.00931950079229638 2.61053401118261E-10 -0.0208026837260192"
+        rpy="0 0 0" />
+      <mass
+        value="0.0258442400233154" />
+      <inertia
+        ixx="8.44322067871013E-07"
+        ixy="-4.35711906916352E-15"
+        ixz="1.5997545871964E-09"
+        iyy="1.89982287129972E-06"
+        iyz="1.5097745648131E-14"
+        izz="2.35375155074037E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/pinky_link_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.854901960784314 0.803921568627451 0.529411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/pinky_link_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="pinky_joint_3"
+    type="revolute">
+    <origin
+      xyz="0.06208 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="pinky_link_3" />
+    <child
+      link="pinky_link_4" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="pinky_tip_link">
+    <inertial>
+      <origin
+        xyz="-0.0036967168965587 -1.03743461599137E-08 -0.0109641155797036"
+        rpy="0 0 0" />
+      <mass
+        value="0.00495275341752657" />
+      <inertia
+        ixx="3.91697436125343E-07"
+        ixy="4.86465970730503E-14"
+        ixz="-1.08235595536275E-08"
+        iyy="2.86007272520911E-07"
+        iyz="5.23817978319976E-13"
+        izz="2.21616297092372E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/pinky_tip_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://nst_hand/meshes/pinky_tip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="pinky_fixed_joint"
+    type="fixed">
+    <origin
+      xyz="0.045748 0.0043223 -0.0136"
+      rpy="1.5708 0 1.5708" />
+    <parent
+      link="pinky_link_4" />
+    <child
+      link="pinky_tip_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+</robot>

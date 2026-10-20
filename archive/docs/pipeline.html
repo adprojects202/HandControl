@@ -1,0 +1,1008 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Every stage of the Leap-to-h4nd retargeting pipeline as the tensors actually flow through it, with the real shapes, constants and objective terms.">
+<title>h4nd Retargeting Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [['\\(', '\\)']], displayMath: [['$$', '$$']] },
+    svg: { fontCache: 'global', scale: 0.98 },
+    options: { renderActions: { addMenu: [] } }
+  };
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+  /* ---------------------------------------------------------------- tokens
+     The five accents are not chosen here - they are the lane colours the
+     MuJoCo viewer already renders each mapping in (replay.LANE_STYLE), so a
+     colour on this page means what it means on screen. */
+  :root {
+    --ground:      #F4F6F8;
+    --panel:       #FFFFFF;
+    --panel-sunk:  #EDF0F4;
+    --ink:         #10151C;
+    --ink-soft:    #47515F;
+    --ink-faint:   #7C8898;
+    --rule:        #D6DCE4;
+    --rule-strong: #B4BEC9;
+
+    --operator: #2E6BD6;   /* YOU      - blue skeleton   0.30 0.55 1.00 */
+    --teacher:  #2E8F52;   /* TEACHER  - green           0.36 0.78 0.50 */
+    --student:  #7B2BD1;   /* STUDENT  - violet          0.60 0.28 0.95 */
+    --ahead:    #D22F3E;   /* AHEAD    - coral           0.95 0.36 0.42 */
+    --encoder:  #B96A00;   /* ENCODER  - amber           1.00 0.62 0.28 */
+
+    --shadow: 0 1px 2px rgba(16, 21, 28, .06), 0 8px 24px -16px rgba(16, 21, 28, .18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0C1014;
+      --panel:       #141A21;
+      --panel-sunk:  #0F151B;
+      --ink:         #E4E9F0;
+      --ink-soft:    #A0AAB8;
+      --ink-faint:   #6C7787;
+      --rule:        #232C36;
+      --rule-strong: #35404D;
+      --operator: #6BA5FF;
+      --teacher:  #5CC780;
+      --student:  #A971F5;
+      --ahead:    #F2707C;
+      --encoder:  #FFA84D;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -18px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:      #0C1014;
+    --panel:       #141A21;
+    --panel-sunk:  #0F151B;
+    --ink:         #E4E9F0;
+    --ink-soft:    #A0AAB8;
+    --ink-faint:   #6C7787;
+    --rule:        #232C36;
+    --rule-strong: #35404D;
+    --operator: #6BA5FF;
+    --teacher:  #5CC780;
+    --student:  #A971F5;
+    --ahead:    #F2707C;
+    --encoder:  #FFA84D;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -18px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 56px 28px 96px; }
+
+  /* ------------------------------------------------------------ typography */
+  h1 {
+    font-size: clamp(30px, 4.4vw, 46px);
+    line-height: 1.06; margin: 0; font-weight: 700; letter-spacing: -.026em;
+    text-wrap: balance;
+  }
+  h2 {
+    font-size: 13px; font-weight: 600; margin: 0;
+    text-transform: uppercase; letter-spacing: .13em; color: var(--ink-faint);
+  }
+  h3 { font-size: 19px; font-weight: 600; letter-spacing: -.012em; margin: 0; text-wrap: balance; }
+  p { margin: 0; }
+  .lede { font-size: 17px; color: var(--ink-soft); max-width: 66ch; margin-top: 14px; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ----------------------------------------------------------------- head */
+  header { border-bottom: 1px solid var(--rule-strong); padding-bottom: 30px; }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace; font-size: 11.5px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--ink-faint); margin: 0 0 16px;
+  }
+  .facts {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+    gap: 1px; margin-top: 30px; background: var(--rule); border: 1px solid var(--rule);
+    border-radius: 3px; overflow: hidden;
+  }
+  .fact { background: var(--panel); padding: 12px 14px; }
+  .fact dt {
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-faint); margin: 0 0 3px;
+  }
+  .fact dd {
+    margin: 0; font-family: "IBM Plex Mono", monospace; font-size: 19px;
+    font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+  }
+  .fact dd span { font-size: 12px; color: var(--ink-faint); font-weight: 400; }
+
+  /* ---------------------------------------------------------------- spine */
+  .act { margin-top: 60px; }
+  .act-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+  .act-head .rule { flex: 1; height: 1px; background: var(--rule-strong); }
+  .act-note { color: var(--ink-soft); max-width: 68ch; margin-bottom: 26px; font-size: 14.5px; }
+
+  .stages { display: flex; flex-direction: column; gap: 14px; }
+
+  .stage {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--tint, var(--rule-strong));
+    border-radius: 3px;
+    padding: 20px 22px 20px 24px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    gap: 12px 34px;
+    box-shadow: var(--shadow);
+  }
+  @media (max-width: 860px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+
+  .stage-id {
+    font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 600;
+    letter-spacing: .12em; color: var(--tint, var(--ink-faint)); margin-bottom: 7px;
+  }
+  .stage-where {
+    font-family: "IBM Plex Mono", monospace; font-size: 11.5px;
+    color: var(--ink-faint); margin-top: 5px;
+  }
+  .stage-body { color: var(--ink-soft); font-size: 14.5px; margin-top: 12px; max-width: 54ch; }
+  .stage-body em { color: var(--ink); font-style: normal; font-weight: 500; }
+
+  /* --------------------------------------------------------------- shapes */
+  .io { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .shape {
+    font-family: "IBM Plex Mono", monospace; font-size: 12.5px; font-variant-numeric: tabular-nums;
+    background: var(--panel-sunk); border: 1px solid var(--rule);
+    padding: 3px 8px; border-radius: 2px; white-space: nowrap;
+  }
+  .shape b { font-weight: 600; color: var(--tint, var(--ink)); }
+  .arrow { color: var(--ink-faint); font-family: "IBM Plex Mono", monospace; }
+
+  /* ----------------------------------------------------------------- math */
+  .math {
+    background: var(--panel-sunk);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    align-self: start;
+  }
+  .math + .math { margin-top: 10px; }
+  .math-label {
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-faint); margin-bottom: 8px;
+  }
+  mjx-container { color: var(--ink); }
+  mjx-container[display="true"] { margin: 0 !important; }
+
+  /* ------------------------------------------------------------ constants */
+  .knobs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+  .knob {
+    font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-variant-numeric: tabular-nums;
+    border: 1px solid var(--rule); border-radius: 2px; padding: 2px 7px; color: var(--ink-soft);
+  }
+  .knob b { font-weight: 600; color: var(--ink); }
+
+
+  /* ------------------------------------------------------------- flowchart */
+  :root {
+    --fill-op: #E9F1FC; --fill-te: #E7F5EC; --fill-st: #F3EAFC; --fill-en: #FBF1E1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --fill-op: #13233A; --fill-te: #11291C; --fill-st: #221537; --fill-en: #2A2010;
+    }
+  }
+  :root[data-theme="dark"] {
+    --fill-op: #13233A; --fill-te: #11291C; --fill-st: #221537; --fill-en: #2A2010;
+  }
+  .chart {
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 3px;
+    padding: 22px 20px; margin-top: 22px; overflow-x: auto; box-shadow: var(--shadow);
+  }
+  .chart svg { display: block; width: 100%; min-width: 720px; height: auto; }
+
+  /* Layer bands sit behind everything; wires behind the boxes so an arrow
+     tucks under the block it points at instead of drawing over its border. */
+  .layer      { stroke-width: 1; stroke-dasharray: 3 4; fill-opacity: .5; }
+  .layer-te   { fill: var(--fill-te); stroke: var(--teacher); }
+  .layer-st   { fill: var(--fill-st); stroke: var(--student); }
+  .layer-op   { fill: var(--fill-op); stroke: var(--operator); }
+  .layer-name { font: 600 10px "IBM Plex Mono", monospace; letter-spacing: .16em; }
+  .name-te { fill: var(--teacher); }  .name-st { fill: var(--student); }
+  .name-op { fill: var(--operator); } .name-en { fill: var(--encoder); }
+
+  .n-op   { fill: var(--fill-op); stroke: var(--operator); stroke-width: 1.5; }
+  .n-te   { fill: var(--fill-te); stroke: var(--teacher);  stroke-width: 1.5; }
+  .n-st   { fill: var(--fill-st); stroke: var(--student);  stroke-width: 1.5; }
+  .n-en   { fill: var(--fill-en); stroke: var(--encoder);  stroke-width: 1.5; }
+  .n-box  { fill: var(--panel);   stroke: var(--rule-strong); stroke-width: 1.2; }
+  .n-file { fill: var(--panel); stroke: var(--rule-strong); stroke-width: 1; stroke-dasharray: 4 3; }
+
+  .t-title { fill: var(--ink); font: 600 13.5px "IBM Plex Sans", sans-serif; }
+  .t-sub   { fill: var(--ink-faint); font: 400 10px "IBM Plex Mono", monospace; letter-spacing: .03em; }
+  .t-file  { fill: var(--ink); font: 500 11.5px "IBM Plex Mono", monospace; }
+  .t-size  { fill: var(--ink-faint); font: 400 9.5px "IBM Plex Mono", monospace; }
+  .t-edge  { fill: var(--ink-faint); font: 400 10px "IBM Plex Mono", monospace; }
+  .wire    { stroke: var(--rule-strong); stroke-width: 1.4; fill: none; }
+  .diamond { fill: var(--encoder); }
+
+  /* ---------------------------------------------------------------- forks */
+  .fork {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px;
+  }
+  @media (max-width: 860px) { .fork { grid-template-columns: 1fr; } }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 16px; margin-top: 22px;
+    padding-top: 18px; border-top: 1px solid var(--rule);
+  }
+  .lane { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-soft); }
+  .swatch { width: 11px; height: 11px; border-radius: 2px; flex: none; }
+  .lane .mono { color: var(--ink); font-size: 12px; }
+
+  /* ---------------------------------------------------------------- table */
+  .tablewrap { overflow-x: auto; margin-top: 18px; border: 1px solid var(--rule); border-radius: 3px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; background: var(--panel); }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th {
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--ink-faint); font-weight: 500;
+    background: var(--panel-sunk);
+  }
+  td.n { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  footer {
+    margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--rule-strong);
+    color: var(--ink-faint); font-size: 13px; display: flex; flex-wrap: wrap;
+    gap: 10px 26px;
+  }
+  footer .mono { color: var(--ink-soft); }
+  a { color: var(--operator); }
+  :focus-visible { outline: 2px solid var(--operator); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+<style>
+  /* Standalone-only: the artifact runtime supplies these, a double-clicked
+     file does not. Fonts and the maths renderer come from a CDN, so opened
+     with no network this falls back to system faces and shows the LaTeX
+     source rather than typeset equations - everything else is self-contained. */
+  html { color-scheme: light dark; }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">h4nd_left &middot; leap motion &rarr; 16 servos</p>
+    <h1>What each stage does to the numbers</h1>
+    <p class="lede">
+      The retargeting pipeline as the tensors actually flow through it: a human hand
+      arrives as 21 points in millimetres and leaves as 16 joint angles on a bus, and
+      every stage between is either changing the shape or changing what the numbers mean.
+      Shapes and constants below are read off the shipped code, not idealised.
+    </p>
+
+    <dl class="facts">
+      <div class="fact"><dt>Joints</dt><dd>16</dd></div>
+      <div class="fact"><dt>Keypoints</dt><dd>21<span> &times;3</span></dd></div>
+      <div class="fact"><dt>Features</dt><dd>81</dd></div>
+      <div class="fact"><dt>Window</dt><dd>20<span> fr</span></dd></div>
+      <div class="fact"><dt>Collide pairs</dt><dd>108</dd></div>
+      <div class="fact"><dt>Student</dt><dd>238<span>k</span></dd></div>
+      <div class="fact"><dt>Command</dt><dd>100<span> Hz</span></dd></div>
+    </dl>
+  </header>
+
+  <!-- ================================================================ A -->
+  <section class="act">
+    <div class="act-head"><h2>A &middot; The shared vocabulary</h2><span class="rule"></span></div>
+    <p class="act-note">
+      Three objects are built once and read by everything downstream &mdash; the offline solve
+      and the live loop use the <em>same</em> forward kinematics and the <em>same</em> collision
+      proxy, which is the only reason a label and a live pose are comparable at all.
+    </p>
+
+    <div class="stages">
+
+      <article class="stage" style="--tint: var(--operator)">
+        <div>
+          <p class="stage-id">A0 &middot; SENSOR</p>
+          <h3>Two views of one hand</h3>
+          <p class="stage-where mono">learning/sessions.py</p>
+          <p class="stage-body">
+            The Leap reports a 5&times;5 bone array in device millimetres. It becomes
+            <em>two</em> views of the same frame, because no single one survives both
+            operations: per-digit scaling and the rest rotation preserve
+            <em>directions</em> but destroy <em>distances</em>. A pinch that is 21&nbsp;mm
+            at the sensor measures 136&nbsp;mm after scaling &mdash; the solver matched
+            the 136 for a whole recording before this split existed.
+          </p>
+          <div class="io">
+            <span class="shape">bones <b>(n, 5, 5, 3)</b> mm</span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">aligned <b>(n, 21, 3)</b> m</span>
+            <span class="shape">raw <b>(n, 21, 3)</b> m</span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">aligned &mdash; directions survive</p>
+            $$x^{\text{al}}_i \;=\; R_{\text{robot}}\,R_{\text{rest}}\;\big(s_{d(i)}\,(x_i - x_{\text{wrist}})\big) \;+\; o_{d(i)}$$
+          </div>
+          <div class="math">
+            <p class="math-label">raw &mdash; distances survive</p>
+            $$x^{\text{raw}}_i \;=\; R_{\text{robot}}\,(x_i - x_{\text{wrist}}),\qquad \lVert x^{\text{raw}}_a - x^{\text{raw}}_b\rVert = \lVert x_a - x_b\rVert$$
+          </div>
+        </div>
+      </article>
+
+      <article class="stage" style="--tint: var(--operator)">
+        <div>
+          <p class="stage-id">A1 &middot; DISTANCE TABLE</p>
+          <h3>The hand as 15 scalars</h3>
+          <p class="stage-where mono">learning/geometry.py</p>
+          <p class="stage-body">
+            Every fingertip pair and every curl, in millimetres, off the <em>raw</em>
+            view. The first three cells are the thumb row &mdash; thumb to index,
+            middle, ring &mdash; and they become the intent signal that tells the
+            objective which contact the operator is asking for.
+          </p>
+          <div class="io">
+            <span class="shape">raw <b>(n, 21, 3)</b></span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">cells <b>(n, 15)</b> mm</span>
+            <span class="shape">intent <b>(n, 3)</b></span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">per-cell distance, and the intent ramp</p>
+            $$d_c \;=\; \lVert x^{\text{raw}}_{a(c)} - x^{\text{raw}}_{b(c)} \rVert,
+              \qquad c = 1 \ldots 15$$
+            $$\iota_j \;=\; \operatorname{clip}\!\Big(\tfrac{d_{\text{far}} - d_j}{d_{\text{far}} - d_{\text{near}}},\,0,\,1\Big),\quad d_{\text{far}} = 120\,\text{mm}$$
+          </div>
+        </div>
+      </article>
+
+      <article class="stage" style="--tint: var(--teacher)">
+        <div>
+          <p class="stage-id">A2 &middot; KINEMATICS + PROXY</p>
+          <h3>Where the links are, and how close</h3>
+          <p class="stage-where mono">learning/kinematics.py &middot; learning/collision.py</p>
+          <p class="stage-body">
+            One differentiable FK walk gives every body's origin and frame. The
+            collision proxy wraps each of the 4 bodies per digit in an oriented box
+            measured off its mesh, and reports a separating-axis gap for all 108 pairs
+            &mdash; 96 digit-against-digit plus 12 against the palm. One offset per
+            pair is fitted against MuJoCo's true mesh distance, so the proxy is a
+            <em>calibrated</em> stand-in rather than a guess.
+          </p>
+          <div class="io">
+            <span class="shape">q <b>(b, 16)</b> rad</span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">origins <b>(b, 4, 5, 3)</b></span>
+            <span class="shape">frames <b>(b, 4, 5, 3, 3)</b></span>
+            <span class="shape">gaps <b>(b, 108)</b> mm</span>
+          </div>
+          <div class="knobs">
+            <span class="knob">bodies/digit <b>4</b></span>
+            <span class="knob">gap_version <b>2</b></span>
+            <span class="knob">agrees with MuJoCo <b>99.4%</b></span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">separating-axis gap, minus the fitted offset</p>
+            $$g_{p} \;=\; \max_{k \in \mathcal{A}}\Big(\,\lvert \Delta c \cdot a_k\rvert \;-\; r^A_k \;-\; r^B_k \Big)\;-\;\delta_p$$
+            $$r^A_k=\textstyle\sum_{j}\lvert a_k\!\cdot\! u^A_j\rvert\,h^A_j, \qquad \mathcal{A} = \{u^A_j\} \cup \{u^B_j\} \cup \{u^A_i \times u^B_j\}$$
+          </div>
+          <div class="math">
+            <p class="math-label">the degenerate-axis guard &mdash; nine of the fifteen axes need it</p>
+            $$k \in \mathcal{A} \iff \lVert u^A_i \times u^B_j \rVert^2 > 10^{-6}$$
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ================================================================ B -->
+  <section class="act">
+    <div class="act-head"><h2>B &middot; Offline &mdash; making the labels</h2><span class="rule"></span></div>
+    <p class="act-note">
+      The teacher is an optimiser, not a network. It is allowed to be slow because it
+      runs once; what it produces is the target the student spends its life imitating.
+    </p>
+
+    <div class="stages">
+
+      <article class="stage" style="--tint: var(--teacher)">
+        <div>
+          <p class="stage-id">B1 &middot; TEACHER SOLVE</p>
+          <h3>600 Adam steps through the FK</h3>
+          <p class="stage-where mono">learning/objective.py &middot; learning/teacher.py</p>
+          <p class="stage-body">
+            A whole run is solved at once, warm-started from the live NLopt solver so
+            the trajectory begins somewhere plausible. The objective scores
+            <em>directions</em> against the aligned view and <em>contact</em> against
+            the raw one, and charges penetration on all 108 pairs.
+          </p>
+          <div class="io">
+            <span class="shape">aligned + raw + intent</span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">q* <b>(54953, 16)</b> rad</span>
+          </div>
+          <div class="knobs">
+            <span class="knob">steps <b>600</b></span>
+            <span class="knob">lr <b>0.02</b> cosine</span>
+            <span class="knob">smooth <b>savgol 21/2</b></span>
+            <span class="knob">tol <b>1 mm</b></span>
+            <span class="knob">clearance <b>4 mm</b></span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">what is minimised, per run</p>
+            $$\mathcal{L} \;=\; \underbrace{\bar\theta_{\text{bone}}}_{\text{posture}}
+              \;+\; \underbrace{w_c\,\overline{\tau\,g^{+}_{\text{tip}}}}_{\text{contact}}
+              \;+\; \underbrace{w_t\,\overline{\lvert d^{r} - \sigma d^{h}\rvert}}_{\text{track}}
+              \;+\; w_a\,\overline{\lvert \ddot q \rvert} \;+\; \Lambda_{\text{limit}}$$
+            $$\;+\;\underbrace{w_g\!\!\sum_{p=1}^{108}\!\big[\alpha_p - g_p\big]_{+}^{2}}_{\text{self-collision}}
+              \;+\; w_o\,\big[\!-g_{\text{obj}}\big]_{+}^{2} \;+\; w_h\,\overline{\big[g_{\text{obj}}\big]_{+}}$$
+          </div>
+          <div class="math">
+            <p class="math-label">term weights, as shipped</p>
+            $$w_c\!=\!1.0,\;\; w_t\!=\!0.2,\;\; w_a\!=\!1.5,\;\; w_g\!=\!0.3,\;\; w_{\text{order}}\!=\!0.3,\;\; w_o\!=\!3.0,\;\; w_h\!=\!4.0$$
+          </div>
+        </div>
+      </article>
+
+      <article class="stage" style="--tint: var(--teacher)">
+        <div>
+          <p class="stage-id">B2 &middot; OBJECTS</p>
+          <h3>The cylinder rides in, then is pinned</h3>
+          <p class="stage-where mono">learning/gestures.py &middot; learning/objective.py</p>
+          <p class="stage-body">
+            An object solved against from a standing start stalls: closing a finger
+            drives the tip through the surface before the middle link lies on it, and
+            the penetration wall stops the finger there. So the object first
+            <em>rides</em> with the fingers at its own learning rate, then slides back
+            to where the operator's hand placed it while the fingers follow.
+          </p>
+          <div class="io">
+            <span class="shape">hand cylinder <b>(c, a, r)</b></span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">robot capsule <b>p0, p1, r</b></span>
+          </div>
+          <div class="knobs">
+            <span class="knob">ride <b>300</b> steps</span>
+            <span class="knob">object lr <b>1 mm</b></span>
+            <span class="knob">return <b>100</b> steps</span>
+            <span class="knob">polish <b>100</b> @ lr/4</span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">placed from the hand &mdash; one wrap, one label</p>
+            $$c_{\text{robot}} \;=\; \Big(\,\underbrace{f + (r + \ell)}_{\text{on the palm face}},\;\; k_y + \sigma\,R\,\Delta_y,\;\; k_z + \big(a_0 + a_1 r\big)\Big)$$
+            <p class="math-label" style="margin-top:12px">the object's shift, phase one only</p>
+            $$s^{(t+1)} = s^{(t)} - \eta_{o}\,\nabla_{\!s}\mathcal{L},\qquad \eta_o = 10^{-3}\,\text{m} \;\ll\; \eta_q$$
+          </div>
+        </div>
+      </article>
+
+      <article class="stage" style="--tint: var(--teacher)">
+        <div>
+          <p class="stage-id">B3 &middot; SYNTHETIC</p>
+          <h3>100 hands nobody recorded</h3>
+          <p class="stage-where mono">learning/synthetic.py</p>
+          <p class="stage-body">
+            The recording covers what one operator did; the sampler covers the corners
+            they never visited. Fitted from the real session &mdash; joint ranges,
+            tendon coupling, spread bands &mdash; then deliberately oversampled where
+            the gesture probe found gaps, and solved by the same teacher.
+          </p>
+          <div class="io">
+            <span class="shape">sampler</span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">keypoints <b>(75000, 21, 3)</b></span>
+            <span class="shape">q* <b>(75000, 16)</b></span>
+          </div>
+          <div class="knobs">
+            <span class="knob">hands <b>100</b> &times; 6 s</span>
+            <span class="knob">rate <b>125 Hz</b></span>
+            <span class="knob">objects <b>180</b> in 84 hands</span>
+            <span class="knob">pinch rate <b>0.30</b></span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">tendon coupling &mdash; one curl per hand, with departure</p>
+            $$\phi_d \;=\; \phi_{\text{hand}} + \epsilon_d,\qquad
+              \text{pip} = 1.15\,\phi_d,\qquad \text{dip} = 0.66\,\text{pip}$$
+            <p class="math-label" style="margin-top:12px">coverage gate before any of it is written</p>
+            $$\min_{m}\;\Pr\big[\,q^{\text{real}}_{5}(m) \le s_m \le q^{\text{real}}_{95}(m)\,\big] \;\ge\; 0.98$$
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ================================================================ C -->
+  <section class="act">
+    <div class="act-head"><h2>C &middot; The student</h2><span class="rule"></span></div>
+    <p class="act-note">
+      One causal network replaces the 600-step solve. Everything about its shape is a
+      constraint rather than a layer count &mdash; causal because it has to run live,
+      a pose basis because the answer has to be a pose a hand could hold.
+    </p>
+
+    <div class="stages">
+
+      <article class="stage" style="--tint: var(--student)">
+        <div>
+          <p class="stage-id">C1 &middot; FEATURES</p>
+          <h3>81 numbers per frame</h3>
+          <p class="stage-where mono">learning/student.py</p>
+          <p class="stage-body">
+            Both views go in, because the network needs what each one preserves. The
+            derivative channels were tried and removed: a Jacobian attribution put
+            <em>99%</em> of the output's frame-to-frame motion on velocity,
+            acceleration and jerk, and under 1% on everything else &mdash; on a hand
+            holding still.
+          </p>
+          <div class="io">
+            <span class="shape">63 aligned</span>
+            <span class="shape">15 cells</span>
+            <span class="shape">3 intent</span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">x <b>(b, 20, 81)</b></span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">the feature vector</p>
+            $$x_t \;=\; \big[\;\operatorname{vec}(X^{\text{al}}_t)\;\|\;d_t / 100\;\|\;\iota_t\;\big] \;\in\; \mathbb{R}^{81}$$
+          </div>
+        </div>
+      </article>
+
+      <article class="stage" style="--tint: var(--student)">
+        <div>
+          <p class="stage-id">C2 &middot; CAUSAL TCN</p>
+          <h3>Dilations 1&ndash;2&ndash;4&ndash;8, one-sided</h3>
+          <p class="stage-where mono">learning/student.py</p>
+          <p class="stage-body">
+            Four blocks of two kernel-3 convolutions, left-padded and trimmed so the
+            output at frame <span class="mono">t</span> cannot see
+            <span class="mono">t+1</span>. The normalisation is <em>cumulative</em>
+            over the frames so far &mdash; GroupNorm pooled statistics over time, which
+            made the earlier supervised frames acausal.
+          </p>
+          <div class="io">
+            <span class="shape">x <b>(b, 20, 81)</b></span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">h <b>(b, 20, 96)</b></span>
+          </div>
+          <div class="knobs">
+            <span class="knob">channels <b>96</b></span>
+            <span class="knob">receptive field <b>61</b> fr</span>
+            <span class="knob">supervised <b>last 8</b></span>
+            <span class="knob">dropout <b>0.1</b></span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">receptive field &mdash; two convolutions per block</p>
+            $$\mathrm{RF} \;=\; 1 + 2\!\cdot\!\underbrace{2}_{\text{convs}}\!\sum_{\ell} D_\ell
+              \;=\; 1 + 4(1{+}2{+}4{+}8) \;=\; 61 \;>\; 20$$
+          </div>
+          <div class="math">
+            <p class="math-label">cumulative norm &mdash; causal by construction</p>
+            $$\hat h_t \;=\; \frac{h_t - \mu_{1:t}}{\sqrt{\sigma^2_{1:t} + \varepsilon}},
+              \qquad \mu_{1:t} = \tfrac{1}{t}\textstyle\sum_{s\le t} h_s$$
+          </div>
+        </div>
+      </article>
+
+      <article class="stage" style="--tint: var(--student)">
+        <div>
+          <p class="stage-id">C3 &middot; HEADS</p>
+          <h3>A pose basis, and two it never commands</h3>
+          <p class="stage-where mono">learning/student.py &middot; learning/train.py</p>
+          <p class="stage-body">
+            The pose head writes its answer in a PCA basis fitted on the teacher's own
+            solutions, at the full 16 components &mdash; ten carried 98.3% of the
+            variance and cost 1.4&deg;. Four horizons come out of one trunk. The
+            contact head predicts a <em>pinch</em>, measured: it reads 0.00 through an
+            entire wrap on a cylinder.
+          </p>
+          <div class="io">
+            <span class="shape">h <b>(b, 20, 96)</b></span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">q <b>(b, 20, 4, 16)</b></span>
+            <span class="shape">contact <b>(b, 20, 3)</b></span>
+            <span class="shape">ttc <b>(b, 20, 3)</b></span>
+          </div>
+          <div class="knobs">
+            <span class="knob">horizons <b>0, 5, 10, 15</b> fr</span>
+            <span class="knob">basis <b>16</b></span>
+            <span class="knob">params <b>238,422</b></span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">decode &mdash; zero-initialised, so an untrained net emits the mean pose</p>
+            $$\hat q_{t,\,h} \;=\; \bar q \;+\; W\,z_{t,h},\qquad W \in \mathbb{R}^{16\times16},\; z = \text{head}(h_t)$$
+          </div>
+          <div class="math">
+            <p class="math-label">training objective</p>
+            $$\mathcal{L}_{\text{student}} = \lVert \hat q - q^{*}\rVert_1
+              + \lambda_{\!p}\lVert \Delta^{\text{tip}}\rVert^2_2
+              + \lambda_{\!v}\lVert \dot{\hat q} - \dot q^{*}\rVert^2_2
+              + \lambda_{\!g}\big[\alpha - g\big]^2_{+}
+              + \lambda_{\!u}\big[g - g^{*}\big]^2_{+}
+              + \lambda_{\!h}\mathcal{H}$$
+            $$\lambda_p\!=\!20,\;\; \lambda_v\!=\!3.0,\;\; \lambda_g\!=\!8\!\times\!10^{-3},\;\; \lambda_u\!=\!10^{-3},\;\; \lambda_h\!=\!0.2$$
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ================================================================ D -->
+  <section class="act">
+    <div class="act-head"><h2>D &middot; Live &mdash; the 100 Hz loop</h2><span class="rule"></span></div>
+    <p class="act-note">
+      Everything below runs between one sensor frame and the next. The stages are in
+      command order: nothing reaches a servo without passing all of them.
+    </p>
+
+    <div class="stages">
+
+      <article class="stage" style="--tint: var(--student)">
+        <div>
+          <p class="stage-id">D1 &middot; REPAIR</p>
+          <h3>Gauss&ndash;Newton back out of itself</h3>
+          <p class="stage-where mono">learning/collision.py &middot; mimic.py</p>
+          <p class="stage-body">
+            A regressor accurate to 7&ndash;13&deg; interpolating two clear poses can
+            pass through one. Six steps on the proxy move the answer the least it needs
+            to clear; a frame already clear is returned untouched and costs nothing.
+          </p>
+          <div class="io">
+            <span class="shape">q <b>(16,)</b></span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">q clear <b>(16,)</b></span>
+          </div>
+          <div class="knobs">
+            <span class="knob">steps <b>6</b></span>
+            <span class="knob">clamp <b>0.1 rad</b></span>
+            <span class="knob">clear frame <b>&lt;2 ms</b></span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">one step, on the squared penetration only</p>
+            $$f(q) = \tfrac12\textstyle\sum_p \big[\tau - g_p(q)\big]^2_{+},\qquad
+              q \leftarrow q - \operatorname{clip}\!\Big(\tfrac{0.9\,\cdot\,2f}{\lVert \nabla f\rVert^2}\,\nabla f\Big)$$
+          </div>
+        </div>
+      </article>
+
+      <article class="stage" style="--tint: var(--teacher)">
+        <div>
+          <p class="stage-id">D2 &middot; GUARD</p>
+          <h3>Mesh-exact, before the bus</h3>
+          <p class="stage-where mono">robot/collide.py</p>
+          <p class="stage-body">
+            The proxy is a stand-in; this is the real mesh check, bisecting along the
+            path from the last safe pose to the requested one. A refused target is not
+            an error &mdash; the hand travels as far as it can and stops.
+          </p>
+          <div class="io">
+            <span class="shape">q request</span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">q safe</span>
+            <span class="shape">blocked <b>bool</b></span>
+          </div>
+          <div class="knobs">
+            <span class="knob">pairs <b>160</b></span>
+            <span class="knob">margin <b>6 mm</b></span>
+            <span class="knob">clear <b>1.6 ms</b></span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">the largest admissible step along the path</p>
+            $$q_{\text{safe}} \;=\; q_0 + \beta^{\star}(q_1 - q_0),\qquad
+              \beta^{\star} = \max\{\beta : \text{free}(q_0 + \beta\Delta q)\}$$
+          </div>
+        </div>
+      </article>
+
+      <article class="stage" style="--tint: var(--encoder)">
+        <div>
+          <p class="stage-id">D3 &middot; EXECUTOR</p>
+          <h3>Close until something stops you</h3>
+          <p class="stage-where mono">executor.py</p>
+          <p class="stage-body">
+            Copying an angle grabs air &mdash; the robot's links are 21&nbsp;mm thick
+            where a finger is 8. So with GRIP on, each digit's closing joints keep
+            going until the <em>command</em> runs ahead of the encoder while the
+            encoder is not moving. That is contact, with no contact sensor. A pinch is
+            excluded: the contact head says which stalls are the hand meeting itself.
+          </p>
+          <div class="io">
+            <span class="shape">target + encoders + mA</span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">held at <b>&theta;* + 0.06</b></span>
+          </div>
+          <div class="knobs">
+            <span class="knob">ahead <b>0.10 rad</b></span>
+            <span class="knob">for <b>0.15 s</b></span>
+            <span class="knob">still <b>&lt;0.3 rad/s</b></span>
+            <span class="knob">or <b>&gt;180 mA</b></span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">the stall predicate, per digit</p>
+            $$\text{stall} \;=\; \Big(\big(\bar a > 0.10 \;\wedge\; \max_j\lvert\dot\theta_j\rvert < 0.3\big) \;\vee\; \max_j I_j > 180\Big) \;\wedge\; \neg\,\text{pinch}$$
+            $$\bar a \;=\; \operatorname{mean}_j\big(\underbrace{u_j}_{\text{commanded}} - \theta_j\big) \quad\text{— not the mapping's wish}$$
+          </div>
+        </div>
+      </article>
+
+      <article class="stage" style="--tint: var(--encoder)">
+        <div>
+          <p class="stage-id">D4 &middot; BUS</p>
+          <h3>Slew, write, read back</h3>
+          <p class="stage-where mono">hardware.py</p>
+          <p class="stage-body">
+            One daemon thread owns the port. Writes go out at 100&nbsp;Hz behind a
+            software slew limit; encoders and currents come back at 20. The executor
+            runs <em>before</em> the limiter, so a held finger is pinned before it is
+            slewed and the stall is honoured at a rate the hand can obey.
+          </p>
+          <div class="io">
+            <span class="shape">q <b>(16,)</b> rad</span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">ticks <b>(16,)</b></span>
+            <span class="arrow">&rarr;</span>
+            <span class="shape">16 &times; XL330</span>
+          </div>
+          <div class="knobs">
+            <span class="knob">write <b>100 Hz</b></span>
+            <span class="knob">read <b>20 Hz</b></span>
+            <span class="knob">slew <b>6 rad/s</b></span>
+            <span class="knob">current <b>300 mA</b></span>
+          </div>
+        </div>
+        <div>
+          <div class="math">
+            <p class="math-label">rate limit, per tick</p>
+            $$u^{(t+1)} = u^{(t)} + \operatorname{clip}\big(y - u^{(t)},\; \pm v_{\max}\,\Delta t\big),\qquad v_{\max} = 6\ \text{rad/s}$$
+          </div>
+          <div class="math">
+            <p class="math-label">angle to tick, per joint, sign measured not assumed</p>
+            $$\text{tick}_j \;=\; 2048 \;+\; s_j\,\frac{\theta_j}{2\pi}\,4096, \qquad s_j \in \{-1, +1\}$$
+          </div>
+        </div>
+      </article>
+
+    </div>
+
+    <div class="legend">
+      <span class="lane"><span class="swatch" style="background: var(--operator)"></span><span class="mono">YOU</span> operator, both views</span>
+      <span class="lane"><span class="swatch" style="background: var(--teacher)"></span><span class="mono">TEACHER</span> the offline solve</span>
+      <span class="lane"><span class="swatch" style="background: var(--student)"></span><span class="mono">STUDENT</span> the network</span>
+      <span class="lane"><span class="swatch" style="background: var(--ahead)"></span><span class="mono">AHEAD</span> forward head</span>
+      <span class="lane"><span class="swatch" style="background: var(--encoder)"></span><span class="mono">ENCODER</span> what the hand did</span>
+    </div>
+  </section>
+
+  <!-- ================================================================ E -->
+  <section class="act">
+    <div class="act-head"><h2>E &middot; Where the time goes</h2><span class="rule"></span></div>
+    <p class="act-note">
+      Measured on the shipped build, not budgeted. The loop has 10&nbsp;ms and spends
+      well under 2 of it; the solve it replaced took roughly 600 gradient steps per run.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Stage</th><th>Shape in</th><th>Shape out</th><th>Cost</th><th>Runs</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Views + distance table</td><td class="n">(5, 5, 3)</td><td class="n">(21,3) &times;2, (15,)</td><td class="n">&lt;0.1 ms</td><td>every frame</td></tr>
+          <tr><td>Student forward</td><td class="n">(1, 20, 81)</td><td class="n">(1, 4, 16)</td><td class="n">~1 ms</td><td>every frame</td></tr>
+          <tr><td>Repair (clear)</td><td class="n">(16,)</td><td class="n">(16,)</td><td class="n">&lt;2 ms</td><td>every frame</td></tr>
+          <tr><td>Guard (clear)</td><td class="n">(16,)</td><td class="n">(16,)</td><td class="n">1.6 ms</td><td>on change</td></tr>
+          <tr><td>Guard (blocked)</td><td class="n">(16,)</td><td class="n">(16,)</td><td class="n">~15 ms</td><td>rare</td></tr>
+          <tr><td>Teacher solve</td><td class="n">(n, 21, 3)</td><td class="n">(n, 16)</td><td class="n">600 steps</td><td>once per run</td></tr>
+          <tr><td>Student training</td><td class="n">71,600 + 42,329 windows</td><td class="n">238,422 params</td><td class="n">~18 min</td><td>once</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+
+  <!-- ================================================================ F -->
+  <section class="act">
+    <div class="act-head"><h2>F &middot; The whole pipeline, and what moves between stages</h2><span class="rule"></span></div>
+    <p class="act-note">
+      Every arrow that crosses a stage boundary is a file on disk, so any stage can be
+      re-run on its own and the one after it picks up the change. Dashed boxes are those
+      files. The four commands are the whole pipeline &mdash; there is no hidden step.
+    </p>
+
+    <div class="chart">
+    <svg viewBox="0 0 1000 1000" role="img" aria-label="Pipeline flow chart from capture through teacher and student to the robot, with the file handed between each stage">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M0,1 L9,5 L0,9 z" fill="context-stroke"/>
+        </marker>
+      </defs>
+      <g>
+        <rect class="layer layer-op" x="30" y="10" width="660" height="272" rx="8"/>
+        <text class="layer-name name-op" x="44" y="30">CAPTURE — THE OPERATOR, RECORDED</text>
+        <rect class="layer layer-te" x="248" y="298" width="442" height="322" rx="8"/>
+        <text class="layer-name name-te" x="262" y="316">TEACHER — THE OPTIMISER THAT MAKES LABELS</text>
+        <rect class="layer layer-st" x="128" y="636" width="466" height="256" rx="8"/>
+        <text class="layer-name name-st" x="142" y="654">STUDENT — THE NETWORK THAT REPLACES IT</text>
+      </g>
+      <g>
+        <path class="wire" d="M155,300 H575"/>
+        <path class="wire" d="M365,86 V146" marker-end="url(#ar)"/>
+        <path class="wire" d="M365,200 V230" marker-end="url(#ar)"/>
+        <path class="wire" d="M365,270 V300" marker-end="url(#ar)"/>
+        <path class="wire" d="M155,300 V330" marker-end="url(#ar)"/>
+        <path class="wire" d="M365,300 V330" marker-end="url(#ar)"/>
+        <path class="wire" d="M575,300 V330" marker-end="url(#ar)"/>
+        <path class="wire" d="M155,388 V412" marker-end="url(#ar)"/>
+        <path class="wire" d="M365,388 V412" marker-end="url(#ar)"/>
+        <path class="wire" d="M575,388 V412" marker-end="url(#ar)"/>
+        <path class="wire" d="M155,452 V672" marker-end="url(#ar)"/>
+        <path class="wire" d="M365,452 V672" marker-end="url(#ar)"/>
+        <path class="wire" d="M575,472 V500" marker-end="url(#ar)"/>
+        <path class="wire" d="M575,556 V580" marker-end="url(#ar)"/>
+        <path class="wire" d="M575,620 V672" marker-end="url(#ar)"/>
+        <path class="wire" d="M365,730 V760" marker-end="url(#ar)"/>
+        <path class="wire" d="M365,800 V830" marker-end="url(#ar)"/>
+        <path class="wire" d="M365,884 V914" marker-end="url(#ar)"/>
+      </g>
+      <g>
+          <rect class="n-op" x="265" y="34" width="200" height="52" rx="4"/>
+      <text class="t-title" x="279" y="57">Leap Motion</text>
+      <text class="t-sub" x="279" y="74">119 Hz · 21 keypoints</text>
+
+          <rect class="n-op" x="265" y="146" width="200" height="54" rx="4"/>
+      <text class="t-title" x="279" y="169">CAPTURE</text>
+      <text class="t-sub" x="279" y="186">learn.py survey · 16 blocks</text>
+
+          <rect class="n-file" x="265" y="230" width="200" height="40" rx="3"/>
+      <text class="t-file" x="278" y="248">session.npz</text>
+      <text class="t-size" x="278" y="262">55,447 frames · 17 MB</text>
+
+          <rect class="n-op" x="60" y="330" width="190" height="54" rx="4"/>
+      <text class="t-title" x="74" y="353">NOISE MODEL</text>
+      <text class="t-sub" x="74" y="370">learn.py noise</text>
+
+          <rect class="n-te" x="265" y="330" width="200" height="54" rx="4"/>
+      <text class="t-title" x="279" y="353">TEACHER</text>
+      <text class="t-sub" x="279" y="370">learn.py teacher</text>
+      <path class="diamond" d="M450,341 L455,346 L450,351 L445,346 Z"/>
+
+          <rect class="n-te" x="480" y="330" width="190" height="54" rx="4"/>
+      <text class="t-title" x="494" y="353">HAND SAMPLER</text>
+      <text class="t-sub" x="494" y="370">ranges off the session</text>
+
+          <rect class="n-file" x="60" y="412" width="190" height="40" rx="3"/>
+      <text class="t-file" x="73" y="430">noise.json</text>
+      <text class="t-size" x="73" y="444">per-mode sigma</text>
+
+          <rect class="n-file" x="265" y="412" width="200" height="40" rx="3"/>
+      <text class="t-file" x="278" y="430">teacher.npz</text>
+      <text class="t-size" x="278" y="444">54,953 × 16 · 34 MB</text>
+
+          <rect class="n-te" x="480" y="412" width="190" height="54" rx="4"/>
+      <text class="t-title" x="494" y="435">SYNTHETIC HANDS</text>
+      <text class="t-sub" x="494" y="452">100 × 6 s @ 125 Hz</text>
+
+          <rect class="n-te" x="480" y="500" width="190" height="54" rx="4"/>
+      <text class="t-title" x="494" y="523">TEACHER</text>
+      <text class="t-sub" x="494" y="540">learn.py synth</text>
+      <path class="diamond" d="M655,511 L660,516 L655,521 L650,516 Z"/>
+
+          <rect class="n-file" x="480" y="580" width="190" height="40" rx="3"/>
+      <text class="t-file" x="493" y="598">pairs.npz</text>
+      <text class="t-size" x="493" y="612">75,000 × 16 · 39 MB</text>
+
+          <rect class="n-st" x="150" y="672" width="430" height="58" rx="4"/>
+      <text class="t-title" x="164" y="695">STUDENT</text>
+      <text class="t-sub" x="164" y="712">learn.py train · pretrain, fine-tune, REPLAY 1:1</text>
+      <path class="diamond" d="M565,683 L570,688 L565,693 L560,688 Z"/>
+
+          <rect class="n-file" x="265" y="760" width="200" height="40" rx="3"/>
+      <text class="t-file" x="278" y="778">student.pt</text>
+      <text class="t-size" x="278" y="792">238,422 params · 0.97 MB</text>
+
+          <rect class="n-st" x="265" y="830" width="200" height="54" rx="4"/>
+      <text class="t-title" x="279" y="853">LIVE LOOP</text>
+      <text class="t-sub" x="279" y="870">main.py run · 100 Hz</text>
+      <path class="diamond" d="M450,841 L455,846 L450,851 L445,846 Z"/>
+
+          <rect class="n-en" x="265" y="914" width="200" height="44" rx="4"/>
+      <text class="t-title" x="279" y="937">ROBOT</text>
+      <text class="t-sub" x="279" y="954">16 × XL330-M288</text>
+
+          <rect class="n-box" x="700" y="146" width="260" height="54" rx="4"/>
+      <text class="t-title" x="714" y="169">WORLD MODEL</text>
+      <text class="t-sub" x="714" y="186">URDF → MJCF → oriented boxes</text>
+
+          <rect class="n-file" x="700" y="230" width="260" height="40" rx="3"/>
+      <text class="t-file" x="713" y="248">collision_left.json</text>
+      <text class="t-size" x="713" y="262">108 pairs · offsets fitted to MuJoCo</text>
+
+      </g>
+      <g>
+        <text class="t-edge" x="373" y="122">bones (n,5,5,3) mm</text>
+        <text class="t-edge" x="373" y="294">one recording, three readers</text>
+        <text class="t-edge" x="163" y="480">augmentation</text>
+        <text class="t-edge" x="373" y="480">fine-tune half</text>
+        <text class="t-edge" x="583" y="648">pretrain half</text>
+        <text class="t-edge" x="373" y="750">the weights</text>
+        <text class="t-edge" x="373" y="908">q (16,) rad → ticks</text>
+        <path class="diamond" d="M706,312 L711,317 L706,322 L701,317 Z"/>
+        <text class="t-sub" x="720" y="321">read by every block marked ◆</text>
+        <text class="t-sub" x="700" y="345">One forward kinematics and one calibrated</text>
+        <text class="t-sub" x="700" y="361">proxy, shared by the solve, the training and</text>
+        <text class="t-sub" x="700" y="377">the live loop — which is the only reason a</text>
+        <text class="t-sub" x="700" y="393">label and a live pose are comparable.</text>
+      </g>
+    </svg>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Command</th><th>Reads</th><th>Writes</th><th>Cost</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono">learn.py survey</td><td>the sensor</td><td class="mono">session.npz, meta.json</td><td class="n">15 min, operator present</td></tr>
+          <tr><td class="mono">learn.py noise</td><td class="mono">session.npz</td><td class="mono">noise.json</td><td class="n">~1 min</td></tr>
+          <tr><td class="mono">learn.py teacher</td><td class="mono">session.npz</td><td class="mono">teacher.npz</td><td class="n">15 min</td></tr>
+          <tr><td class="mono">learn.py synth</td><td class="mono">session.npz</td><td class="mono">pairs.npz, objects.json</td><td class="n">43 min</td></tr>
+          <tr><td class="mono">learn.py train</td><td class="mono">pairs.npz, teacher.npz, noise.json</td><td class="mono">student.pt</td><td class="n">18 min</td></tr>
+          <tr><td class="mono">learn.py gestures</td><td class="mono">session.npz, student.pt</td><td class="mono">gestures/pairs.npz</td><td class="n">~1 min</td></tr>
+          <tr><td class="mono">main.py run</td><td class="mono">student.pt, collision_left.json</td><td>the servos</td><td class="n">100 Hz, live</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <span class="mono">h4nd_left &middot; 16 DOF &middot; XL330-M288</span>
+    <span>Shapes and constants read off the shipped code.</span>
+    <span class="mono">learning/README.md carries the measurements behind each choice.</span>
+  </footer>
+
+</div>
+</body>
+</html>

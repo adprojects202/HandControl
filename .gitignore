@@ -1,0 +1,23 @@
+# virtualenvs. .venv is shared by handlab/ and archive/; .venv-dex is the old
+# keyvector solver's own interpreter (see archive/README.md)
+.venv/
+.venv-dex/
+
+# bytecode
+__pycache__/
+*.pyc
+
+# Recordings and other data - kept on the machine that made them. Matches
+# handlab/data/ and archive/data/ alike.
+data/
+
+# --- archive/ (the old HandControl codebase) ---
+# trace recordings from the old panel's LOG button
+logs/
+# generated: URDFs, mirrored meshes, the pose bank
+archive/world/build/
+# rendered comparison videos (`learn.py replay --video`), regenerable
+archive/docs/video/
+# exports kept beside the nst_hand model, not part of it
+archive/world/nst_hand/*.zip
+archive/world/nst_hand/export.log

@@ -1,0 +1,21 @@
+# Pinned: the window uses mujoco.experimental.studio, whose API can move
+# between releases. Upgrade deliberately and re-run scripts/selftest.py and main.py.
+mujoco==3.12.0
+numpy>=2.0
+dynamixel-sdk>=4.0
+pyserial>=3.5
+pillow>=10.0          # scripts/render.py
+# Camera and hand tracking (src/vision). mediapipe brings opencv-contrib-python
+# (cv2: camera, drawing, and ArUco for later).
+mediapipe>=1.1
+opencv-contrib-python>=4.10
+pyobjc-framework-AVFoundation>=10; sys_platform == "darwin"   # camera permission
+# Vision-language models (src/assistant). Keys: environment or handlab/.env.
+anthropic>=1.11
+openai>=3.25
+python-dotenv>=1.0          # reads keys from handlab/.env (gitignored)
+# Segmenting recordings (src/processing/segment.py): SAM 2.1 / SAM 3 through
+# Hugging Face transformers, on the Apple GPU (MPS).
+torch>=2.6
+torchvision>=0.21
+transformers>=5.0

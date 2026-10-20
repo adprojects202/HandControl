@@ -1,0 +1,26 @@
+{
+  "_note": "the panel's controls, as you left them. Safe to edit or delete. The output and arm switches are deliberately not in here - they start off every time, whatever this file says.",
+  "finger": "thumb",
+  "mimic": {
+    "mirror": false,
+    "mode": "student",
+    "scale": 1.0,
+    "smoothing": 0.6443850267379678,
+    "spread_gain": 0.9184491978609626,
+    "thumb": "pinch"
+  },
+  "port": "/dev/cu.usbserial-FT8J0X9Y",
+  "tab": "learning",
+  "tuning": {
+    "collision_margin": 0.006,
+    "command_hz": 100.0,
+    "effort": 0.5,
+    "ik_damping": 0.01,
+    "ik_iters": 60.0,
+    "ik_tol": 0.0005,
+    "kp": 30.0,
+    "kv": 1.0,
+    "max_speed": 6.0
+  },
+  "tuning_version": 3
+}

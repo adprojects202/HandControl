@@ -1,0 +1,76 @@
+{
+  "_note": "one operator's hand, fitted by the MIMIC tab's CALIBRATE button. ranges are the human angles in radians that span each joint's travel; scale and offset place the fingertips for tip mode. Delete this file to start over.",
+  "calibrated": true,
+  "hand_scale": 0.0008915461278837417,
+  "offset": [
+    -0.021443228890050924,
+    -0.006168717812133287,
+    0.07373230043482237
+  ],
+  "ranges": {
+    "index_adduction_joint": [
+      -0.42464071600850395,
+      0.16445073297207943
+    ],
+    "index_distal_joint": [
+      0.06138298536440498,
+      0.883517862394491
+    ],
+    "index_middle_joint": [
+      0.07387691508884782,
+      1.4320014974194726
+    ],
+    "index_proximal_joint": [
+      -0.17532714318419665,
+      0.8226838880851015
+    ],
+    "middle_adduction_joint": [
+      -0.2751184975222073,
+      -0.09979549173761468
+    ],
+    "middle_distal_joint": [
+      0.08160472705494674,
+      0.9196090095830708
+    ],
+    "middle_middle_joint": [
+      0.10051754424195829,
+      1.487768427700886
+    ],
+    "middle_proximal_joint": [
+      -0.04814099708961488,
+      1.270568238112237
+    ],
+    "ring_adduction_joint": [
+      -0.11797366430775108,
+      0.2416803693561041
+    ],
+    "ring_distal_joint": [
+      0.11620501526060979,
+      0.9222299681432783
+    ],
+    "ring_middle_joint": [
+      0.17545813943054822,
+      1.5698368964007168
+    ],
+    "ring_proximal_joint": [
+      -0.058683830729346555,
+      1.2421308148979313
+    ],
+    "thumb_adduction_joint": [
+      0.0,
+      0.8802390029048921
+    ],
+    "thumb_distal_joint": [
+      0.15862494588229184,
+      0.7546356128879971
+    ],
+    "thumb_middle_joint": [
+      -0.052668579780917026,
+      0.14807321263868178
+    ],
+    "thumb_proximal_joint": [
+      0.0,
+      0.9068798458283742
+    ]
+  }
+}

@@ -1,0 +1,1187 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="h4nd_left">
+  <link
+    name="palm_base_link">
+    <inertial>
+      <origin
+        xyz="-0.0230498485629751 0.00143375892905924 -0.0216229255666702"
+        rpy="0 0 0" />
+      <mass
+        value="0.0939296283616966" />
+      <inertia
+        ixx="9.4433431684849E-05"
+        ixy="-9.68696032845512E-07"
+        ixz="-3.13588584778559E-06"
+        iyy="4.85551011757586E-05"
+        iyz="1.83481142481125E-07"
+        izz="5.5387269378975E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/palm_base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/palm_base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="index_base_link">
+    <inertial>
+      <origin
+        xyz="-0.00876724228485912 0.000108636803252096 0.00677288210609683"
+        rpy="0 0 0" />
+      <mass
+        value="0.00997724941627411" />
+      <inertia
+        ixx="1.35142480960352E-06"
+        ixy="1.23835739990838E-09"
+        ixz="-6.25851194603971E-08"
+        iyy="1.10730104506996E-06"
+        iyz="1.43517306968457E-09"
+        izz="4.78420931241674E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/index_base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/index_base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="index_palm_fix"
+    type="fixed">
+    <origin
+      xyz="-0.00745 -0.025877 -0.011791"
+      rpy="0 0 0" />
+    <parent
+      link="palm_base_link" />
+    <child
+      link="index_base_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="index_adduction_link">
+    <inertial>
+      <origin
+        xyz="0.0125919606350608 -0.000156567024497973 0.0219402263598207"
+        rpy="0 0 0" />
+      <mass
+        value="0.00886895444276738" />
+      <inertia
+        ixx="8.8723574930411E-07"
+        ixy="9.63455321751235E-09"
+        ixz="-1.04602182339127E-07"
+        iyy="8.77287729923952E-07"
+        iyz="1.06768315447009E-07"
+        izz="6.57723508094837E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/index_adduction_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+	<geometry>
+	<mesh
+          filename="package://h4nd_left/meshes/index_adduction_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="index_adduction_joint"
+    type="revolute">
+    <origin
+      xyz="-0.02205 5E-05 0.01545"
+      rpy="0 0 0" />
+    <parent
+      link="index_base_link" />
+    <child
+      link="index_adduction_link" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-0.087266"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="index_proximal_link">
+    <inertial>
+      <origin
+        xyz="1.66543736227496E-05 0.000676737896471076 0.0115833060361179"
+        rpy="0 0 0" />
+      <mass
+        value="0.0113544184051533" />
+      <inertia
+        ixx="1.47696290302966E-06"
+        ixy="1.78178068436377E-10"
+        ixz="7.90254941738749E-09"
+        iyy="1.75478269650212E-06"
+        iyz="8.78144169505379E-08"
+        izz="5.19573494820193E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/index_proximal_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/index_proximal_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="index_proximal_joint"
+    type="revolute">
+    <origin
+      xyz="0.01275 0 0.044"
+      rpy="0 0 0" />
+    <parent
+      link="index_adduction_link" />
+    <child
+      link="index_proximal_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.34907"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="index_middle_link">
+    <inertial>
+      <origin
+        xyz="7.10568386126263E-06 0.000276737896471077 0.0115833060361179"
+        rpy="0 0 0" />
+      <mass
+        value="0.0113544184051533" />
+      <inertia
+        ixx="1.47696290302967E-06"
+        ixy="1.7817806843649E-10"
+        ixz="7.90254941738738E-09"
+        iyy="1.75478269650213E-06"
+        iyz="8.7814416950538E-08"
+        izz="5.19573494820194E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/index_middle_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/index_middle_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="index_middle_joint"
+    type="revolute">
+    <origin
+      xyz="5E-05 0 0.03905"
+      rpy="0 0 0" />
+    <parent
+      link="index_proximal_link" />
+    <child
+      link="index_middle_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.34907"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="index_distal_link">
+    <inertial>
+      <origin
+        xyz="5.86368032521739E-05 -0.000167242284859103 0.00867711789390324"
+        rpy="0 0 0" />
+      <mass
+        value="0.00997724941627412" />
+      <inertia
+        ixx="1.10730104506996E-06"
+        ixy="1.2383573999086E-09"
+        ixz="-1.43517306968611E-09"
+        iyy="1.35142480960352E-06"
+        iyz="6.25851194603973E-08"
+        izz="4.78420931241675E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/index_distal_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/index_distal_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="index_distal_joint"
+    type="revolute">
+    <origin
+      xyz="-5E-05 0 0.03905"
+      rpy="0 0 0" />
+    <parent
+      link="index_middle_link" />
+    <child
+      link="index_distal_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.34907"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="middle_base_link">
+    <inertial>
+      <origin
+        xyz="-0.00876724228485912 0.000108636803252096 0.00677288210609683"
+        rpy="0 0 0" />
+      <mass
+        value="0.00997724941627411" />
+      <inertia
+        ixx="1.35142480960352E-06"
+        ixy="1.23835739990835E-09"
+        ixz="-6.25851194603972E-08"
+        iyy="1.10730104506996E-06"
+        iyz="1.4351730696849E-09"
+        izz="4.78420931241674E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/middle_base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/middle_base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="middle_palm_fix"
+    type="fixed">
+    <origin
+      xyz="-0.00745 -0.0002766 -0.011791"
+      rpy="0 0 0" />
+    <parent
+      link="palm_base_link" />
+    <child
+      link="middle_base_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="middle_adduction_link">
+    <inertial>
+      <origin
+        xyz="0.0124618412479022 -0.000322102804926941 0.0217282885894832"
+        rpy="0 0 0" />
+      <mass
+        value="0.00895275284740002" />
+      <inertia
+        ixx="9.04080330621822E-07"
+        ixy="5.34711332140523E-09"
+        ixz="-1.16108747673562E-07"
+        iyy="9.013046911927E-07"
+        iyz="1.01625445412804E-07"
+        izz="6.69738674018041E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/middle_adduction_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/middle_adduction_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="middle_adduction_joint"
+    type="revolute">
+    <origin
+      xyz="-0.02195 5E-05 0.01545"
+      rpy="0 0 0" />
+    <parent
+      link="middle_base_link" />
+    <child
+      link="middle_adduction_link" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-0.34907"
+      upper="0.34907"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="middle_proximal_link">
+    <inertial>
+      <origin
+        xyz="1.66543736227509E-05 0.000476737896471076 0.0115833060361179"
+        rpy="0 0 0" />
+      <mass
+        value="0.0113544184051533" />
+      <inertia
+        ixx="1.47696290302966E-06"
+        ixy="1.78178068436388E-10"
+        ixz="7.90254941738747E-09"
+        iyy="1.75478269650212E-06"
+        iyz="8.78144169505374E-08"
+        izz="5.1957349482019E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/middle_proximal_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/middle_proximal_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="middle_proximal_joint"
+    type="revolute">
+    <origin
+      xyz="0.01275 0 0.0439"
+      rpy="0 0 0" />
+    <parent
+      link="middle_adduction_link" />
+    <child
+      link="middle_proximal_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.34907"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="middle_middle_link">
+    <inertial>
+      <origin
+        xyz="7.1056838612648E-06 7.67378964710592E-05 0.0115833060361179"
+        rpy="0 0 0" />
+      <mass
+        value="0.0113544184051533" />
+      <inertia
+        ixx="1.47696290302966E-06"
+        ixy="1.78178068436476E-10"
+        ixz="7.90254941738736E-09"
+        iyy="1.75478269650212E-06"
+        iyz="8.78144169505377E-08"
+        izz="5.1957349482019E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/middle_middle_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/middle_middle_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="middle_middle_joint"
+    type="revolute">
+    <origin
+      xyz="5E-05 0 0.03905"
+      rpy="0 0 0" />
+    <parent
+      link="middle_proximal_link" />
+    <child
+      link="middle_middle_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.34907"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="middle_distal_link">
+    <inertial>
+      <origin
+        xyz="5.86368032521154E-05 -0.000267242284859108 0.00867711789390324"
+        rpy="0 0 0" />
+      <mass
+        value="0.00997724941627412" />
+      <inertia
+        ixx="1.10730104506996E-06"
+        ixy="1.23835739990842E-09"
+        ixz="-1.43517306968605E-09"
+        iyy="1.35142480960352E-06"
+        iyz="6.25851194603972E-08"
+        izz="4.78420931241674E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/middle_distal_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/middle_distal_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="middle_distal_joint"
+    type="revolute">
+    <origin
+      xyz="-5E-05 0 0.03905"
+      rpy="0 0 0" />
+    <parent
+      link="middle_middle_link" />
+    <child
+      link="middle_distal_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.34907"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="ring_base_link">
+    <inertial>
+      <origin
+        xyz="-0.00876724228485911 0.000108636803252092 0.00677288210609684"
+        rpy="0 0 0" />
+      <mass
+        value="0.00997724941627411" />
+      <inertia
+        ixx="1.35142480960352E-06"
+        ixy="1.23835739990838E-09"
+        ixz="-6.2585119460397E-08"
+        iyy="1.10730104506996E-06"
+        iyz="1.43517306968473E-09"
+        izz="4.78420931241673E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/ring_base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/ring_base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="ring_palm_fix"
+    type="fixed">
+    <origin
+      xyz="-0.00745 0.025323 -0.011791"
+      rpy="0 0 0" />
+    <parent
+      link="palm_base_link" />
+    <child
+      link="ring_base_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="ring_adduction_link">
+    <inertial>
+      <origin
+        xyz="0.0175235012012942 -0.000371617153204523 0.0219690580344205"
+        rpy="0 0 0" />
+      <mass
+        value="0.0090678338276049" />
+      <inertia
+        ixx="8.98389788595933E-07"
+        ixy="6.99164643106294E-10"
+        ixz="-9.06344477388844E-08"
+        iyy="9.18072614297503E-07"
+        iyz="9.36580998642568E-08"
+        izz="6.97371508396855E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/ring_adduction_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/ring_adduction_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="ring_adduction_joint"
+    type="revolute">
+    <origin
+      xyz="-0.027395 5E-05 0.01545"
+      rpy="0 0 0" />
+    <parent
+      link="ring_base_link" />
+    <child
+      link="ring_adduction_link" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-1.9199"
+      upper="0.087266"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="ring_proximal_link">
+    <inertial>
+      <origin
+        xyz="-8.33456263772806E-05 0.00187673789647112 0.0114833060361179"
+        rpy="0 0 0" />
+      <mass
+        value="0.0113544184051533" />
+      <inertia
+        ixx="1.47696290302966E-06"
+        ixy="1.7817806843638E-10"
+        ixz="7.90254941738763E-09"
+        iyy="1.75478269650212E-06"
+        iyz="8.78144169505382E-08"
+        izz="5.19573494820193E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/ring_proximal_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/ring_proximal_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="ring_proximal_joint"
+    type="revolute">
+    <origin
+      xyz="0.018095 -0.0012 0.044"
+      rpy="0 0 0" />
+    <parent
+      link="ring_adduction_link" />
+    <child
+      link="ring_proximal_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.34907"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="ring_middle_link">
+    <inertial>
+      <origin
+        xyz="-9.28943161387064E-05 0.00157673789647114 0.0114833060361179"
+        rpy="0 0 0" />
+      <mass
+        value="0.0113544184051533" />
+      <inertia
+        ixx="1.47696290302966E-06"
+        ixy="1.78178068436366E-10"
+        ixz="7.90254941738778E-09"
+        iyy="1.75478269650212E-06"
+        iyz="8.78144169505378E-08"
+        izz="5.19573494820193E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/ring_middle_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/ring_middle_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="ring_middle_joint"
+    type="revolute">
+    <origin
+      xyz="5E-05 0 0.03905"
+      rpy="0 0 0" />
+    <parent
+      link="ring_proximal_link" />
+    <child
+      link="ring_middle_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.34907"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="ring_distal_link">
+    <inertial>
+      <origin
+        xyz="-4.13631967478597E-05 0.00123275771514095 0.00857711789390314"
+        rpy="0 0 0" />
+      <mass
+        value="0.00997724941627411" />
+      <inertia
+        ixx="1.10730104506996E-06"
+        ixy="1.23835739990844E-09"
+        ixz="-1.43517306968592E-09"
+        iyy="1.35142480960352E-06"
+        iyz="6.25851194603971E-08"
+        izz="4.78420931241674E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/ring_distal_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/ring_distal_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="ring_distal_joint"
+    type="revolute">
+    <origin
+      xyz="-5E-05 0 0.03905"
+      rpy="0 0 0" />
+    <parent
+      link="ring_middle_link" />
+    <child
+      link="ring_distal_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.34907"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="thumb_base_link">
+    <inertial>
+      <origin
+        xyz="-1.70448428896391E-05 -0.00677288210603856 -0.00876724228476108"
+        rpy="0 0 0" />
+      <mass
+        value="0.00997724941616517" />
+      <inertia
+        ixx="1.10730104506344E-06"
+        ixy="1.43517307087687E-09"
+        ixz="-1.23835739985778E-09"
+        iyy="4.78420931240736E-07"
+        iyz="6.25851194590528E-08"
+        izz="1.35142480959728E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/thumb_base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/thumb_base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="thumb_palm_fix"
+    type="fixed">
+    <origin
+      xyz="-0.0211 0.0021256 -0.040374"
+      rpy="0.5236 2.2364E-05 -3.8736E-05" />
+    <parent
+      link="palm_base_link" />
+    <child
+      link="thumb_base_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="thumb_proximal_link">
+    <inertial>
+      <origin
+        xyz="0.00015527152441169 -0.0219404456605222 -0.00737197336399413"
+        rpy="0 0 0" />
+      <mass
+        value="0.00890141016680759" />
+      <inertia
+        ixx="8.80193210228991E-07"
+        ixy="1.06804638370114E-07"
+        ixz="-9.63383588284784E-09"
+        iyy="6.5867184578804E-07"
+        iyz="1.04638864255424E-07"
+        izz="8.90141275849878E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/thumb_proximal_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/thumb_proximal_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="thumb_proximal_joint"
+    type="revolute">
+    <origin
+      xyz="5E-05 -0.01545 -0.001985"
+      rpy="0 0 0" />
+    <parent
+      link="thumb_base_link" />
+    <child
+      link="thumb_proximal_link" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="0"
+      upper="1.7453"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="thumb_adduction_link">
+    <inertial>
+      <origin
+        xyz="-0.00129502705311916 -0.0192471386796405 0.00111780931994044"
+        rpy="0 0 0" />
+      <mass
+        value="0.0164441400318003" />
+      <inertia
+        ixx="2.14992038983802E-06"
+        ixy="-3.66266914491869E-08"
+        ixz="9.35175392728867E-09"
+        iyy="9.39266775501766E-07"
+        iyz="-4.53797297791612E-08"
+        izz="1.93197667713492E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/thumb_adduction_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/thumb_adduction_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="thumb_adduction_joint"
+    type="revolute">
+    <origin
+      xyz="0 -0.044 -0.007215"
+      rpy="0 0 0" />
+    <parent
+      link="thumb_proximal_link" />
+    <child
+      link="thumb_adduction_link" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="-0.34907"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="thumb_middle_link">
+    <inertial>
+      <origin
+        xyz="-0.0065238060633281 -0.0115513209750508 1.92306625964138E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0113195057127715" />
+      <inertia
+        ixx="1.75035952722494E-06"
+        ixy="8.58805914084136E-08"
+        ixz="-2.50564134745684E-10"
+        iyy="5.18596036672974E-07"
+        iyz="-7.65463366251487E-09"
+        izz="1.47203125638671E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/thumb_middle_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/thumb_middle_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="thumb_middle_joint"
+    type="revolute">
+    <origin
+      xyz="0.00068921 -0.05425 0.00068921"
+      rpy="0 0.7854 0" />
+    <parent
+      link="thumb_adduction_link" />
+    <child
+      link="thumb_middle_link" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="-0.34907"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="thumb_distal_link">
+    <inertial>
+      <origin
+        xyz="-0.00610088067396721 -0.00867711789392878 6.70448428860965E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.0099772494161857" />
+      <inertia
+        ixx="1.35142480959706E-06"
+        ixy="6.25851194596415E-08"
+        ixz="-1.23835740046151E-09"
+        iyy="4.78420931240539E-07"
+        iyz="1.43517307315015E-09"
+        izz="1.10730104506383E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/thumb_distal_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://h4nd_left/meshes/thumb_distal_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="thumb_distal_joint"
+    type="revolute">
+    <origin
+      xyz="0 -0.03905 5E-05"
+      rpy="0 0 0" />
+    <parent
+      link="thumb_middle_link" />
+    <child
+      link="thumb_distal_link" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="-0.34907"
+      upper="1.9199"
+      effort="0"
+      velocity="0" />
+  </joint>
+</robot>

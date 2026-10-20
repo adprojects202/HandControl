@@ -1,0 +1,12 @@
+__pycache__/
+renders/
+settings.json.tmp
+# Recordings: measurements, not code, kept on the machine that made them -
+# like the rest of the repo's data/.
+data/
+# MuJoCo writes its errors here
+MUJOCO_LOG.TXT
+# API keys (ANTHROPIC_API_KEY=..., OPENAI_API_KEY=...): never committed
+.env
+# Hugging Face model weights (SAM 2.1 / SAM 3): downloaded on first use
+assets/models/huggingface/

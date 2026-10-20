@@ -1,0 +1,87 @@
+{
+  "_note": "sign is how the motor is mounted, not how the joint is modelled: -1 means a positive joint angle needs a negative tick delta. On this build every flexion actuator is mounted backwards and the four spread joints are not - by role, so the thumb's spread is thumb_proximal and its knuckle is thumb_adduction. Measure with `main.py hw watch` before trusting any of it.",
+  "baudrate": 4000000,
+  "calibrated": true,
+  "motors": {
+    "index_adduction_joint": {
+      "id": 1,
+      "sign": 1,
+      "zero": 2048
+    },
+    "index_distal_joint": {
+      "id": 4,
+      "sign": -1,
+      "zero": 2048
+    },
+    "index_middle_joint": {
+      "id": 3,
+      "sign": -1,
+      "zero": 2048
+    },
+    "index_proximal_joint": {
+      "id": 2,
+      "sign": -1,
+      "zero": 2048
+    },
+    "middle_adduction_joint": {
+      "id": 5,
+      "sign": 1,
+      "zero": 2048
+    },
+    "middle_distal_joint": {
+      "id": 8,
+      "sign": -1,
+      "zero": 2048
+    },
+    "middle_middle_joint": {
+      "id": 7,
+      "sign": -1,
+      "zero": 2048
+    },
+    "middle_proximal_joint": {
+      "id": 6,
+      "sign": -1,
+      "zero": 2048
+    },
+    "ring_adduction_joint": {
+      "id": 9,
+      "sign": 1,
+      "zero": 2048
+    },
+    "ring_distal_joint": {
+      "id": 12,
+      "sign": -1,
+      "zero": 2048
+    },
+    "ring_middle_joint": {
+      "id": 11,
+      "sign": -1,
+      "zero": 2048
+    },
+    "ring_proximal_joint": {
+      "id": 10,
+      "sign": -1,
+      "zero": 2048
+    },
+    "thumb_adduction_joint": {
+      "id": 14,
+      "sign": -1,
+      "zero": 2048
+    },
+    "thumb_distal_joint": {
+      "id": 16,
+      "sign": -1,
+      "zero": 2048
+    },
+    "thumb_middle_joint": {
+      "id": 15,
+      "sign": -1,
+      "zero": 2048
+    },
+    "thumb_proximal_joint": {
+      "id": 13,
+      "sign": 1,
+      "zero": 2048
+    }
+  }
+}
