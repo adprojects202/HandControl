@@ -22,6 +22,9 @@ Two kinds of model, by `segment.model`:
            matching SAM 2.1's (median IoU 0.99). Memory grows ~20 MB a frame,
            so a recording too long for this machine is refused up front.
 
+Each mask is saved as the object's own region, without the stray specks
+the models leave (vision/regions.py).
+
 Weights download once, into assets/models/huggingface/ (not committed).
 Runs on the Apple GPU (MPS) when there is one, else the CPU.
 """
@@ -34,6 +37,8 @@ from datetime import datetime
 import numpy as np
 
 from .. import keys, paths, settings
+from ..recording.episode import MASKS
+from ..vision.regions import main_region
 
 CACHE = paths.ROOT / "assets/models/huggingface"
 SAM3 = "facebook/sam3"
@@ -97,7 +102,7 @@ def segment(episode, progress=lambda done, total, text="": None, model=None, tra
     packed, notes = track(model, frames, asked, progress)
     height, width = frames[0].shape[:2]
     area = np.unpackbits(packed, axis=-1, count=width).sum(axis=(2, 3)) / (height * width)
-    episode.save_masks({
+    episode.save_arrays(MASKS, {
         "masks": packed, "area": area.astype(np.float32),
         "width": width, "height": height,
         "names": np.array([p.name for p in asked]),
@@ -199,7 +204,7 @@ def _sam2(name, frames, asked, progress):
                         binarize=True)[0]
                     for obj_id, mask in zip(output.object_ids, masks):
                         packed[obj_id - 1, index] = np.packbits(
-                            mask[0].cpu().numpy().astype(bool), axis=-1)
+                            main_region(mask[0].cpu().numpy().astype(bool)), axis=-1)
                     done += 1
                     progress(done, total, f"{name.split('/')[-1]}: frame {index}")
     return packed, [""] * len(asked)
@@ -229,7 +234,7 @@ def _sam3(name, frames, asked, progress):
                 found = candidates.setdefault(obj, {"name": prompt_of.get(obj),
                                                     "masks": {}, "boxes": {}, "score": 0.0})
                 found["masks"][output.frame_idx] = np.packbits(
-                    mask.cpu().numpy().astype(bool), axis=-1)
+                    main_region(mask.cpu().numpy().astype(bool)), axis=-1)
                 found["boxes"][output.frame_idx] = box
                 found["score"] += score
             progress(done, count, f"sam3: frame {output.frame_idx}")

@@ -774,6 +774,418 @@ def segment_step_prompts_from_the_context_and_saves_masks():
             settings.set("recording.folder", stored)
 
 
+def _bare_episode(folder, frames):
+    """An episode folder with no video: meta and frame times only."""
+    folder.mkdir(parents=True)
+    from src.recording.episode import FORMAT
+    (folder / "meta.json").write_text(json.dumps(
+        {"format": FORMAT, "complete": True, "camera": {"width": 160, "height": 120}}))
+    np.savez(folder / "frames.npz", time=np.arange(frames) / 30.0)
+
+
+def _hand_at(x, y, scale=0.1):
+    """21 landmarks of a flat hand, wrist at (x, y), fingers up."""
+    points = np.zeros((21, 3), np.float32)
+    for finger in range(5):
+        for joint in range(4):
+            points[1 + finger * 4 + joint] = (x + (finger - 2) * scale * 0.25,
+                                              y - scale * (0.4 + 0.2 * joint), 0)
+    points[0] = (x, y, 0)
+    return points
+
+
+@check
+def format_1_recordings_have_their_hands_swapped_back():
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp) / "task" / "20261006-000000"
+        _bare_episode(folder, 2)
+        meta = json.loads((folder / "meta.json").read_text())
+        (folder / "meta.json").write_text(json.dumps(dict(meta, format=1)))
+        present = np.array([[True, False], [True, False]])   # stored in the left slot
+        np.savez(folder / "hands.npz", present=present, score=np.ones((2, 2)),
+                 image=np.zeros((2, 2, 21, 3)), world=np.zeros((2, 2, 21, 3)))
+        assert [h.side for h in Episode(folder).hands_at(0)] == ["Right"]
+
+
+@check
+def hands_step_follows_one_hand_through_flips_phantoms_and_gaps():
+    from src.processing.hands import clean_hands
+    count = 120
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp) / "task" / "20260101-000000"
+        _bare_episode(folder, count)
+        shape = (count, 2, 21, 3)
+        raw = {"image": np.full(shape, np.nan, np.float32),
+               "world": np.zeros(shape, np.float32),
+               "score": np.full((count, 2), np.nan, np.float32),
+               "present": np.zeros((count, 2), bool)}
+        for i in range(count):
+            if 40 <= i < 70 or i in (100, 101):                # hidden; a short gap
+                continue
+            slot = 0 if 80 <= i < 95 else 1                    # labelled left for 15
+            raw["image"][i, slot] = _hand_at(0.6 + 0.001 * i, 0.7)
+            raw["score"][i, slot] = 0.95
+            raw["present"][i, slot] = True
+            if i >= 105:                              # a phantom on its fingers
+                raw["image"][i, 0] = _hand_at(0.6 + 0.001 * i, 0.66, scale=0.05)
+                raw["score"][i, 0] = 0.99
+                raw["present"][i, 0] = True
+        np.savez(folder / "hands.npz", **raw)
+        episode = Episode(folder)
+        summary = clean_hands(episode)
+        clean = Episode(folder).clean_hands
+        assert summary["tracks"] == 1, summary
+        assert clean["track_side"].tolist() == ["Right"], clean["track_side"]
+        assert summary["relabelled"] == 15 and summary["phantoms"] == 15, summary
+        assert not clean["present"][:, 0].any(), "no left hand"
+        assert clean["present"][90, 1] and not clean["present"][50, 1], "flip kept, gap left"
+        assert clean["filled"][100, 1] and clean["filled"].sum() == 2, "short gap filled"
+        assert np.allclose(clean["image"][110, 1, 0, :2], (0.71, 0.7), atol=1e-3), \
+            "the real hand kept, not the surer phantom"
+
+
+@check
+def object_step_measures_angle_contact_and_motion_in_hand():
+    from src.processing.objects import measure_objects
+    count, width, height = 60, 160, 120
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp) / "task" / "20260101-000000"
+        _bare_episode(folder, count)
+        hand = np.full((count, 2, 21, 3), np.nan, np.float32)
+        present = np.zeros((count, 2), bool)
+        for i in range(count):
+            hand[i, 1] = _hand_at(0.5, 0.75, scale=0.2)
+            present[i, 1] = True
+        np.savez(folder / "hands.npz", image=hand, world=np.zeros_like(hand),
+                 score=np.ones((count, 2)), present=present)
+        packed = np.zeros((1, count, height, (width + 7) // 8), np.uint8)
+        for i in range(count):                       # a bar turning 1 degree a frame
+            mask = np.zeros((height, width), np.uint8)
+            box = ((80, 50), (60, 14), float(i))
+            cv2.fillPoly(mask, [cv2.boxPoints(box).astype(np.int32)], 1)
+            packed[0, i] = np.packbits(mask.astype(bool), axis=-1)
+        episode = Episode(folder)
+        episode.save_arrays("masks.npz", {
+            "masks": packed, "width": width, "height": height,
+            "names": np.array(["bar"]), "area": np.ones((1, count))})
+        held = measure_objects(episode)
+        motion = Episode(folder).arrays("object.npz")
+        assert held == {"bar": 1.0} and motion["hand"].tolist() == [1], held
+        turned = np.degrees(motion["angle"][0, -1] - motion["angle"][0, 0])
+        assert abs(turned - (count - 1)) < 3, turned          # boxPoints: clockwise +
+        turn = np.degrees(motion["turn"][0, -1])               # turn: counter-clockwise +
+        assert abs(turn + (count - 1)) < 3, turn
+        heading = np.degrees(motion["heading"][0])
+        assert np.allclose(heading, np.degrees(motion["angle"][0]), atol=3), \
+            "heading follows the bar"
+        assert np.allclose(motion["centroid"][0, 30], (80, 50), atol=1.0)
+        assert abs(motion["area"][0, 0] - 60 * 14 / (width * height)) < 0.01
+        assert np.isfinite(motion["in_hand"][0]).all()
+        square = np.zeros((1, count, height, (width + 7) // 8), np.uint8)
+        for i in range(count):                  # a square turning half a degree a frame
+            mask = np.zeros((height, width), np.uint8)
+            cv2.fillPoly(mask, [cv2.boxPoints(((80, 60), (40, 40), 0.5 * i)).astype(np.int32)], 1)
+            square[0, i] = np.packbits(mask.astype(bool), axis=-1)
+        episode.save_arrays("masks.npz", {
+            "masks": square, "width": width, "height": height,
+            "names": np.array(["cube"]), "area": np.ones((1, count))})
+        measure_objects(episode)
+        turn = np.degrees(Episode(folder).arrays("object.npz")["turn"][0, -1])
+        assert abs(turn + 0.5 * (count - 1)) < 3, turn
+
+
+def _board_views(count=10, focal=520.0, size=(640, 480), stretch=1.0):
+    """Pictures of a 9 x 6 checkerboard seen by a known camera. Its squares
+    are 40 mm wide and 40 * `stretch` mm high."""
+    width, height = size
+    matrix = np.array([[focal, 0, 330], [0, focal, 236], [0, 0, 1]])
+    square = 40
+    board = np.full((9 * square, 12 * square), 255, np.uint8)
+    for r in range(7):
+        for c in range(10):
+            if (r + c) % 2 == 0:
+                board[(r + 1) * square:(r + 2) * square, (c + 1) * square:(c + 2) * square] = 0
+    board = cv2.resize(board, (board.shape[1], round(board.shape[0] * stretch)),
+                       interpolation=cv2.INTER_NEAREST)
+    rng = np.random.default_rng(0)
+    scale = np.array([[0.001, 0, -board.shape[1] * 0.0005],
+                      [0, 0.001, -board.shape[0] * 0.0005], [0, 0, 1]])
+    pictures = []
+    for _ in range(count):
+        rvec = rng.uniform(-0.5, 0.5, 3)
+        rotation, _ = cv2.Rodrigues(rvec)
+        move = np.array([rng.uniform(-0.05, 0.05), rng.uniform(-0.04, 0.04),
+                         rng.uniform(0.4, 0.6)])
+        homography = matrix @ np.column_stack([rotation[:, 0], rotation[:, 1], move]) @ scale
+        gray = cv2.warpPerspective(board, homography, size, borderValue=200)
+        pictures.append(cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB))
+    return pictures
+
+
+@check
+def camera_calibration_from_checkerboard_pictures():
+    from src.vision import calibration
+    pictures = _board_views()
+    corners = [c for c in (calibration.find_corners(p, (9, 6)) for p in pictures)
+               if c is not None]
+    assert len(corners) >= calibration.MIN_VIEWS, len(corners)
+    result = calibration.calibrate(corners, (9, 6), (640, 480))
+    assert abs(result.fx - 520) < 2 and abs(result.cy - 236) < 2, result
+    assert result.rms_px < 0.3 and result.views == len(corners), result
+    stretched = [c for c in (calibration.find_corners(p, (9, 6))
+                             for p in _board_views(count=12, stretch=1.3)) if c is not None]
+    told = calibration.calibrate(stretched, (9, 6), (640, 480), (40, 52))
+    assert abs(told.fx - 520) < 5 and abs(told.fy - 520) < 5, told   # squares given
+    half = result.scaled(320, 240)
+    assert abs(half.fx - result.fx / 2) < 1e-6 and result.scaled(640, 360) is None
+    session = calibration.CalibrationSession((9, 6))
+    try:
+        session.offer(pictures[0])
+        _wait(lambda: session.latest[1] is not None)
+        assert session.take() == "" and "same view" in session.take()
+    finally:
+        session.close()
+    stored = settings.get("camera_calibration")
+    folder_was = settings.get("recording.folder")
+    with tempfile.TemporaryDirectory() as tmp:
+        saving = settings.save
+        settings.save = lambda: None                         # never touch settings.json
+        try:
+            calibration.save("Test Cam", result)
+            assert calibration.for_camera("Test Cam", 320, 240).fx == half.fx
+            assert calibration.for_camera("Other Cam", 640, 480) is None
+            settings.set("recording.folder", tmp)
+            recorder = Recorder(["j"], lambda: (np.zeros(1), None))
+            folder = recorder.start("cal", "Test Cam", settings.DEFAULTS["vision"])
+            recorder.add(Frame(raw=np.zeros((480, 640, 3), np.uint8), image=None, hands=[],
+                               time=0.0, number=1))
+            recorder.stop()
+            assert Episode(folder).calibration.fx == result.fx, "recorded with the episode"
+        finally:
+            settings.set("camera_calibration", stored)
+            settings.set("recording.folder", folder_was)
+            settings.save = saving
+
+
+@check
+def box_pose_is_recovered_from_its_outline():
+    from scipy.spatial.transform import Rotation
+    from src.processing import pose3d
+    matrix = np.array([[520.0, 0, 320], [0, 520.0, 240], [0, 0, 1]])
+    camera, size = (matrix, np.zeros(5)), np.array([0.055] * 3)
+    corners, symmetries = pose3d._box_corners(size), pose3d._symmetries(size * 1000)
+    assert len(symmetries) == 24 and len(pose3d._symmetries([55, 55, 30])) == 8
+    assert len(pose3d._symmetries([40, 55, 30])) == 4
+    axis = np.array([0.3, 1.0, 0.2]) / np.linalg.norm([0.3, 1.0, 0.2])
+    start = Rotation.from_euler("xyz", [20, 30, 10], degrees=True)
+    pose, worst_position, worst_turn = None, 0.0, 0.0
+    for frame in range(30):
+        truth = Rotation.from_rotvec(axis * np.radians(1.5 * frame)) * start
+        place = np.array([0.01 + 0.001 * frame, -0.02, 0.30])
+        points = corners @ truth.as_matrix().T + place
+        pixels, _ = cv2.projectPoints(points, np.zeros(3), np.zeros(3), matrix, None)
+        mask = np.zeros((480, 640), np.uint8)
+        cv2.fillConvexPoly(mask, cv2.convexHull(np.round(pixels[:, 0]).astype(np.int32)), 1)
+        pose = pose3d._fit_box(mask.astype(bool), corners, camera, pose, 0.055, symmetries)
+        rotation, position, overlap = pose
+        worst_position = max(worst_position, np.linalg.norm(position - place))
+        worst_turn = max(worst_turn, pose3d._turn_between(truth.as_matrix(), rotation,
+                                                          symmetries))
+        assert overlap > 0.95, (frame, overlap)
+    assert worst_position < 0.015, worst_position          # m: depth, up to ~4% at 0.3 m
+    # degrees, up to symmetry; near square-on an outline hides up to ~10 deg of tilt
+    assert worst_turn < 8.0, worst_turn
+
+
+@check
+def palm_axes_point_out_of_the_palm():
+    from src.processing import pose3d
+    # a left hand facing the camera, fingers up: thumb and index on the image's left
+    points = np.zeros((21, 3))
+    points[0] = (0, 0.05, 0.3)
+    for knuckle, x in zip((5, 9, 13, 17), (-0.03, -0.01, 0.01, 0.03)):
+        points[knuckle] = (x, -0.03, 0.3)
+    axes = pose3d._palm_axes(points, "Left")
+    assert np.allclose(axes.T @ axes, np.eye(3), atol=1e-9) and np.linalg.det(axes) > 0
+    assert axes[1, 0] < -0.9, "x runs up the fingers (image y is down)"
+    assert axes[2, 2] < -0.9, "z points out of the palm, at the camera"
+
+
+@check
+def transfer_lays_the_palm_on_the_robot_hand():
+    from src.processing.transfer import TO_MOUNT, to_mount
+    assert np.allclose(TO_MOUNT @ TO_MOUNT.T, np.eye(3)) and np.linalg.det(TO_MOUNT) > 0
+    position, rotation = to_mount(np.array([[0.0, 0.0, 0.03], [0.05, 0.0, 0.0]]),
+                                  np.stack([np.eye(3)] * 2))
+    assert np.allclose(position[0], [0.03, 0, 0]), "out of the palm -> mount x"
+    assert np.allclose(position[1], [0, 0, 0.05]), "up the fingers -> mount z"
+    world = _world_with()
+    from src.world import _compose
+    world.set_demo((np.array([0.03, 0.0, 0.07]), np.array([1.0, 0, 0, 0])))
+    placed, _ = _compose(world.mount, np.array([0.03, 0.0, 0.07]), np.array([1.0, 0, 0, 0]))
+    assert np.allclose(world.data.mocap_pos[world._demo], placed)
+    world.set_demo(None)
+    assert world.data.mocap_pos[world._demo][2] < -1, "parked out of sight"
+
+
+SYNTH_K = np.array([[326.0, 0, 320], [0, 326.0, 240], [0, 0, 1]])
+
+
+def _marker_texture(marker=3, side=400, border=75):
+    dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+    return cv2.copyMakeBorder(cv2.aruco.generateImageMarker(dictionary, marker, side),
+                              border, border, border, border, cv2.BORDER_CONSTANT, value=255)
+
+
+def _cube_with_marker(rotation, centre, edge=0.055, marker=0.040):
+    """A 640 x 480 view of a light cube whose +z face carries a marker of side
+    `marker`, and its mask."""
+    from src.processing import pose3d
+    image = np.full((480, 640), 60, np.uint8)
+    corners = pose3d._box_corners([edge] * 3) @ rotation.T + centre
+    pixels, _ = cv2.projectPoints(corners, np.zeros(3), np.zeros(3), SYNTH_K, None)
+    hull = cv2.convexHull(np.round(pixels[:, 0]).astype(np.int32))
+    cv2.fillConvexPoly(image, hull, 230)
+    texture = _marker_texture()
+    per_m = 400 / marker                                   # texture px per metre
+    to_face = np.array([[1 / per_m, 0, -texture.shape[1] / 2 / per_m],
+                        [0, -1 / per_m, texture.shape[0] / 2 / per_m], [0, 0, 1]])
+    face_centre = centre + rotation[:, 2] * edge / 2
+    homography = SYNTH_K @ np.column_stack([rotation[:, 0], rotation[:, 1], face_centre]) @ to_face
+    warped = cv2.warpPerspective(texture, homography, (640, 480), borderValue=0)
+    inside = cv2.warpPerspective(np.full_like(texture, 255), homography, (640, 480)) > 0
+    image[inside] = warped[inside]
+    mask = np.zeros((480, 640), np.uint8)
+    cv2.fillConvexPoly(mask, hull, 1)
+    return cv2.cvtColor(image, cv2.COLOR_GRAY2RGB), mask.astype(bool)
+
+
+@check
+def aruco_markers_give_their_pose():
+    from scipy.spatial.transform import Rotation
+    from src.vision import aruco
+    facing = Rotation.from_euler("x", 180, degrees=True)  # marker z towards the camera
+    for euler in ((0, 0, 0), (25, -20, 30)):               # square-on used to flip
+        rotation = (Rotation.from_euler("xyz", euler, degrees=True) * facing).as_matrix()
+        rgb, _ = _cube_with_marker(rotation, np.array([0.0, 0.0, 0.30]))
+        found = aruco.detect(rgb, "DICT_4X4_50")
+        assert found and found[0][0] == 3, found
+        turn, position, error = aruco.marker_pose(found[0][1], 0.040, SYNTH_K, np.zeros(5))
+        centre = aruco.box_centre(turn, position, 0.055)
+        assert error < 1.0 and np.linalg.norm(centre - [0, 0, 0.30]) < 0.005, (euler, centre)
+        angle = np.degrees(np.arccos(np.clip((np.trace(rotation.T @ turn) - 1) / 2, -1, 1)))
+        assert angle < 10, (euler, angle)
+
+
+@check
+def camera_preview_shows_aruco_markers():
+    from scipy.spatial.transform import Rotation
+    rotation = (Rotation.from_euler("xyz", (20, -15, 10), degrees=True)
+                * Rotation.from_euler("x", 180, degrees=True)).as_matrix()
+    rgb, _ = _cube_with_marker(rotation, np.array([0.0, 0.0, 0.25]))
+
+    class Still:
+        def read(self):
+            time.sleep(0.01)
+            return True, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+
+        def release(self):
+            pass
+
+    from src.vision import camera as camera_module
+    drawn = camera_module.draw
+
+    def covering(rgb, *args, **kwargs):               # a preview that hides everything
+        return np.zeros_like(drawn(rgb, *args, **kwargs))
+
+    camera_module.draw = covering
+    camera = Camera(lambda config: Still())
+    try:
+        camera.reconfigure(dict(settings.DEFAULTS["vision"], enabled=True, aruco=True))
+        _wait(lambda: camera.latest() is not None, timeout=5.0)
+        frame = camera.latest()
+        assert [m[0] for m in frame.markers] == [3], "found on the raw image, not the preview"
+        assert np.array_equal(frame.raw, rgb), "the raw image is the camera's, untouched"
+        assert frame.image.any(), "markers drawn onto the preview"
+    finally:
+        camera_module.draw = drawn
+        camera.close()
+
+
+@check
+def fit_3d_takes_the_marker_pose_and_measures_the_outline_fit():
+    from scipy.spatial.transform import Rotation
+    from src.processing.pose3d import POSE3D, fit_3d
+    from src.vision.calibration import Calibration
+    count = 24
+    calibration = Calibration(640, 480, 326.0, 326.0, 320.0, 240.0, (0.0,) * 5, 0.1, 10, "test")
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp) / "cube" / "20260101-000000"
+        folder.mkdir(parents=True)
+        (folder / "meta.json").write_text(json.dumps({
+            "format": 2, "complete": True,
+            "camera": {"name": "Synth", "width": 640, "height": 480,
+                       "calibration": calibration.entry()}}))
+        np.savez(folder / "frames.npz", time=np.arange(count) / 30.0)
+        writer = cv2.VideoWriter(str(folder / "video.mp4"), cv2.CAP_FFMPEG,
+                                 cv2.VideoWriter_fourcc(*"avc1"), 30.0, (640, 480))
+        packed = np.zeros((1, count, 480, 80), np.uint8)
+        truths = []
+        for i in range(count):
+            rotation = (Rotation.from_euler("xyz", (15 + i, -20, 10 + 0.5 * i), degrees=True)
+                        * Rotation.from_euler("x", 180, degrees=True)).as_matrix()
+            centre = np.array([0.01 + 0.0005 * i, -0.01, 0.30])
+            rgb, mask = _cube_with_marker(rotation, centre)
+            writer.write(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+            packed[0, i] = np.packbits(mask, axis=-1)
+            truths.append(centre)
+        writer.release()
+        none = np.zeros((count, 2), bool)
+        np.savez(folder / "hands_clean.npz", image=np.full((count, 2, 21, 3), np.nan),
+                 world=np.full((count, 2, 21, 3), np.nan), score=np.full((count, 2), np.nan),
+                 present=none, observed=none, filled=none)
+        np.savez(folder / "masks.npz", masks=packed, width=640, height=480,
+                 names=np.array(["cube"]), area=np.ones((1, count)))
+        np.savez(folder / "object.npz", names=np.array(["cube"]), hand=np.array([-1]),
+                 visible=np.ones((1, count), bool), contact=np.zeros((1, count, 2), bool))
+        size = settings.get("object.size_mm")
+        settings.set("object.size_mm", [55.0, 55.0, 55.0])
+        try:
+            summary = fit_3d(Episode(folder))
+        finally:
+            settings.set("object.size_mm", size)
+        pose = Episode(folder).arrays(POSE3D)
+        assert summary["marker_frames"] >= 0.8 * count, summary
+        assert (pose["object_source"][0][pose["marker_id"] >= 0] == 2).all()
+        error = np.linalg.norm(pose["object_position"][0] - np.array(truths), axis=1)
+        assert np.nanmedian(error) < 0.004, np.nanmedian(error)
+        assert summary["outline_vs_marker_mm"] < 15, summary
+
+
+@check
+def pose3d_files_from_before_markers_still_open():
+    from src.processing.pose3d import load
+    from src.vision.calibration import Calibration
+    from src.viewer.recordings_panel import _pose_lines
+    count = 3
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp) / "task" / "20261022-000000"
+        _bare_episode(folder, count)
+        rotation = np.broadcast_to(np.eye(3), (1, count, 3, 3)).copy()
+        position = np.tile([0.0, 0.0, 0.3], (1, count, 1))
+        position[0, 1] = np.nan                               # one frame unposed
+        np.savez(folder / "pose3d.npz",                       # the fields it had then
+                 object_position=position, object_rotation=rotation,
+                 palm_position=np.full((count, 2, 3), np.nan),
+                 palm_rotation=np.full((count, 2, 3, 3), np.nan),
+                 box_mm=np.array([55.0] * 3), names=np.array(["cube"]))
+        pose = load(Episode(folder))
+        assert pose["object_source"][0].tolist() == [1, 0, 1]
+        assert (pose["marker_id"] == -1).all()
+        camera = Calibration(160, 120, 100.0, 100.0, 80.0, 60.0, (0.0,) * 5, 0.1, 8, "t")
+        assert len(_pose_lines(pose, 0, camera)) == 12        # the box's edges
+
+
 def _wait(condition, timeout=2.0):
     end = time.monotonic() + timeout
     while not condition():

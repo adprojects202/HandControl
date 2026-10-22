@@ -142,18 +142,38 @@
     "camera_index": 0,
     "capture_width": 640,
     "capture_height": 480,
-    "mirror": true,
+    "mirror": false,
     "max_hands": 2,
     "min_detection": 0.5,
     "min_tracking": 0.5,
-    "model": "assets/models/hand_landmarker.task"
+    "model": "assets/models/hand_landmarker.task",
+    "checkerboard": [9, 6],
+    "checkerboard_square_mm": [15.0, 15.0],
+    "aruco": true,
+    "aruco_dictionary": "DICT_4X4_50",
+    "aruco_mm": 40.0
+  },
+  "camera_calibration": {
+    "MacBook Pro Camera": {
+      "width": 640,
+      "height": 480,
+      "fx": 325.61275442289246,
+      "fy": 326.5216546399464,
+      "cx": 323.86313718825784,
+      "cy": 285.9902504278186,
+      "distortion": [-0.09109361956894885, -0.0633516222412841, 0.02394585220387427, 0.0008287186812296158, 0.03240189542752117],
+      "rms_px": 0.7108927152332354,
+      "views": 25,
+      "made": "2026-10-22T17:57:32",
+      "square_mm": [15.0, 15.0]
+    }
   },
   "recording": {
     "folder": "data/tasks",
-    "task": "untitled"
+    "task": "redcube3"
   },
   "segment": {
-    "model": "facebook/sam2.1-hiera-small"
+    "model": "facebook/sam2.1-hiera-base-plus"
   },
   "assistant": {
     "provider": "claude",

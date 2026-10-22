@@ -22,6 +22,7 @@ from importlib import metadata
 import cv2
 import numpy as np
 
+from ..vision.calibration import for_camera
 from .episode import (FORMAT, FRAMES, HANDS, META, ROBOT, VIDEO, hand_slots,
                       new_folder, write_json)
 
@@ -108,7 +109,9 @@ class Recorder:
             if not self._video.isOpened():
                 raise RuntimeError(f"cannot write {VIDEO} ({FOURCC})")
             self._t0 = frame.time
-            self._meta["camera"].update(width=width, height=height)
+            known = for_camera(self._meta["camera"]["name"], width, height)
+            self._meta["camera"].update(width=width, height=height,
+                                        calibration=known.entry() if known else None)
         self._video.write(cv2.cvtColor(frame.raw, cv2.COLOR_RGB2BGR))
         self._times.append(frame.time - self._t0)
         self._hands.append(hand_slots(frame.hands))

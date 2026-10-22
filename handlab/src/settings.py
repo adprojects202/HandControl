@@ -165,7 +165,25 @@ DEFAULTS = {
         # MediaPipe's hand landmarker (Apache-2.0), from
         # storage.googleapis.com/mediapipe-models/hand_landmarker/
         "model": "assets/models/hand_landmarker.task",
+        # The calibration checkerboard: inner corners across and down (a
+        # board of 10 x 7 squares has 9 x 6), and one square's width and
+        # height in mm, measured on the board as shown - a board on a screen
+        # can be stretched, and squares that are not square must be said so.
+        "checkerboard": [9, 6],
+        "checkerboard_square_mm": [25.0, 25.0],
+        # ArUco markers, for testing: looked for in every frame - drawn on
+        # the preview, and where one is seen Fit 3D takes the object's pose
+        # from it (a marker in the middle of one face of the object) and
+        # measures the markerless fit against it. aruco_mm: the printed
+        # marker's black square, side; print with scripts/aruco_markers.py.
+        "aruco": True,
+        "aruco_dictionary": "DICT_4X4_50",
+        "aruco_mm": 40.0,
     },
+    # Each camera's own numbers, by camera name, from its calibration
+    # (src/vision/calibration.py; Camera section > Calibrate). fx, fy, cx, cy
+    # in px at width x height; distortion: OpenCV's k1, k2, p1, p2, k3.
+    "camera_calibration": {},
     # Recordings of a person doing a task (src/recording): one folder per
     # recording, under <folder>/<task>/.
     "recording": {
@@ -218,6 +236,10 @@ DEFAULTS = {
 # a key is written "*".
 MAPS = {
     "hardware.motors": {"id": 1, "sign": 1, "zero": 2048},
+    "camera_calibration": {"width": 640, "height": 480, "fx": 0.0, "fy": 0.0,
+                           "cx": 0.0, "cy": 0.0, "distortion": [0.0] * 5,
+                           "rms_px": 0.0, "views": 0, "made": "",
+                           "square_mm": [0.0, 0.0]},
     "motion_presets": {"max_speed": 4.8, "profile_velocity": 200,
                        "profile_acceleration": 20},
 }
@@ -256,6 +278,9 @@ RANGES = {
     "vision.capture_width": (160, 1920),
     "vision.capture_height": (120, 1080),
     "vision.max_hands": (1, 4),
+    "vision.checkerboard[]": (3, 30),
+    "vision.checkerboard_square_mm[]": (1.0, 200.0),
+    "vision.aruco_mm": (5.0, 300.0),
     "vision.min_detection": (0.05, 0.95),
     "vision.min_tracking": (0.05, 0.95),
     "assistant.max_tokens": (256, 64000),
@@ -273,6 +298,8 @@ CHOICES = {
                                "thumb up", "thumb down"),
     "object.mode": ("fixed", "floating"),
     "assistant.provider": ("claude", "openai"),
+    "vision.aruco_dictionary": ("DICT_4X4_50", "DICT_5X5_100", "DICT_6X6_250",
+                                "DICT_ARUCO_ORIGINAL"),
     "segment.model": ("facebook/sam2.1-hiera-tiny", "facebook/sam2.1-hiera-small",
                       "facebook/sam2.1-hiera-base-plus", "facebook/sam2.1-hiera-large",
                       "facebook/sam3"),

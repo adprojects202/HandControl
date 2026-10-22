@@ -54,6 +54,7 @@ class App:
         # Asked for by the GUI, done by tick: the sim thread owns the model.
         self._apply_world = False
         self._reset_object = False
+        self._demo = None           # the demo ghost's pose in the mount frame, or None
 
     def tick(self, dt):
         if self._apply_world:
@@ -62,6 +63,7 @@ class App:
         if self._reset_object:
             self._reset_object = False
             self.world.reset_object()
+        self.world.set_demo(self._demo)
         command = self.controller.step(dt)
         self.bus.send(command)
         self.world.set_pose("command", command)
@@ -89,6 +91,11 @@ class App:
         """Put the object back where it is placed, on the next tick."""
         self._reset_object = True
 
+    def show_demo(self, pose):
+        """Show a recording's object in the sim as the demo ghost - (position,
+        quaternion) in the hand mount's frame - or hide it (None)."""
+        self._demo = pose
+
     def apply_settings(self):
         """Push saved settings into the running parts (after a GUI edit)."""
         self.controller.max_speed = settings.get("control.max_speed")
@@ -115,7 +122,7 @@ class App:
             ]),
             SidePanel("Vision", [
                 CameraSection(self.camera, self.recorder, self.apply_vision),
-                RecordingsSection(self.assistant, self.processing),
+                RecordingsSection(self.assistant, self.processing, self.show_demo),
                 AssistantSection(self.assistant, self.camera),
             ], beside="Options"),
         ]

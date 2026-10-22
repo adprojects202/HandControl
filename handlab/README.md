@@ -20,6 +20,7 @@ world is the same however it is opened.
 | encoder | opaque white | the real robot, posed from its encoders |
 | command | translucent purple | the joint command the software sends out |
 | object | orange | the calibration box, when switched on |
+| demo | translucent cyan | a recording's object moved onto the robot hand (Recordings > transfer to sim); out of sight otherwise |
 
 Both stand on the same mount, so the gap between them is the gap between what
 was asked and what the robot did: the purple ghost sits on the solid hand
@@ -142,10 +143,11 @@ camera, and the preview waits for the answer; if it was no, turn it on in
 System Settings > Privacy & Security > Camera and press *Retry*.
 
 Tracking and recording always use the image as the camera took it, never
-mirrored, and left/right is the person's own hand. (MediaPipe labels hands
-as if the image were mirrored - its hands guide says to swap the label
-otherwise - so the tracker swaps it.) `vision.mirror` (on by default) only
-flips the preview, like a mirror, which is easier to work in front of.
+mirrored, and left/right is the person's own hand - MediaPipe's label as it
+comes, checked on a recording of a left hand. (Recordings made before
+2026-10-22, format 1, stored the two swapped; they are swapped back when
+read.) `vision.mirror` (on by default) only flips the preview, like a
+mirror, which is easier to work in front of.
 
 Nothing reaches the robot yet: this is the observation side - what the hand
 is doing - for retargeting and context later.
@@ -169,6 +171,10 @@ data/tasks/<task>/<YYYYmmdd-HHMMSS>/     (data/ is not committed)
   context.json  the describe step: the task context and what made it
   masks.npz     the segment step: each object's mask in every frame (bit-packed),
                 area per frame, the prompt used, the model and when
+  hands_clean.npz  the hands step: one followed hand per slot, filled, smoothed
+  object.npz    the object step: centre, area, angle, contact, in-hand motion
+  pose3d.npz    transfer, Fit 3D: palm and object poses in metres; the object in the palm
+  sim.npz       transfer, Send to sim: the object's motion in the robot hand's frame
 ```
 
 `meta.json` is written with `"complete": false` when recording starts and
@@ -198,6 +204,70 @@ Steps on a recording, in order (Recordings section):
    Weights download on first use into `assets/models/huggingface/` (not
    committed): SAM 2.1 small 184 MB, SAM 3 3.4 GB. Steps run one at a time
    off the GUI thread, with progress and *Cancel*.
+3. **Hands** - each of the person's hands followed as *one* hand through
+   the recording (`src/processing/hands.py` -> `hands_clean.npz`).
+   MediaPipe loses a hand hidden behind the object, flips left/right when
+   it turns edge-on, and sees phantom hands on the fingers - surer of the
+   phantom than of the real hand. So: hands are followed by where the palm
+   goes (waiting up to 2 s while one is hidden), a track sitting inside
+   another is dropped as a phantom, the side is the vote of all the labels,
+   short gaps are filled and every run is smoothed. On the first recording:
+   one right hand, 31 labels corrected, 33 phantom detections dropped.
+   Playback shows these hands once the step has run.
+4. **Object motion** - each object's centre, size, how far it has *turned*,
+   which hand holds it (landmarks touching the mask), and its position and
+   turn relative to that hand (`src/processing/objects.py` -> `object.npz`).
+   The turn compares each frame's mask with a reference frame's and finds
+   the rotation that lays one on the other, so it works for any shape - a
+   cube has no long axis (its silhouette is 1.05 : 1). Within 1-3 degrees on
+   synthetic turning bars and squares, slow, fast and back and forth. In the
+   image plane: a turn toward or away from the camera shows only as a
+   change of area. Plotted under the step; the plot's cursor is the
+   player's frame, and a click on the plot moves it there.
+
+5. **Transfer to sim** - two parts.
+   *Fit 3D* (`src/processing/pose3d.py` -> `pose3d.npz`): the hands and the
+   object in metres. The hand: MediaPipe's 3D hand shape fitted to its image
+   points with the camera's calibration (OpenCV solvePnP), at one size for
+   the whole recording (MediaPipe's per-frame size guess wobbled 85-102 mm,
+   which swung the distance by 5 cm); a palm frame from the wrist and
+   knuckles (x up the fingers, z out of the palm). The object: a box of the
+   World section's `object.size_mm`, posed so its projected outline covers
+   the mask - its image size gives the distance, its shape the rotation -
+   found by searching 2000 orientations on the first frame (and whenever a
+   frame fits worse than 0.95) and refined frame to frame. A box looks the
+   same turned onto any like face (a cube: 24 ways), so each frame keeps the
+   equal pose nearest the last; near square-on an outline hides up to ~10
+   degrees of tilt. Both are smoothed (median of 9 frames). With a still hand
+   (palm moving under 3 cm across the image) the palm's median pose is used,
+   since its orientation is the least sure thing while the object hides it.
+   The object's known size also measures the hand: `hand_scale`. On test
+   cubes: within 1 degree and 5 mm (depth up to ~4%). On the red-cube
+   recording: outline fit 0.97, the cube's centre 20-32 mm out of the palm
+   (a 55 mm cube resting on it: 27.5+), turning 8-46 degrees back and forth,
+   the hand 0.87x MediaPipe's average size.
+   **ArUco markers (testing)**: with `vision.aruco` on, Fit 3D also looks
+   for markers in every frame (`src/vision/aruco.py`); the largest is taken
+   to sit in the middle of a face of the object, and where one is seen its
+   pose is the object's (the wireframe turns magenta). The outline fit
+   still runs alone on every frame, and is measured against the marker:
+   the summary and the plot show the outline fit's error in mm and degrees.
+   On a synthetic recording of a cube carrying a marker: 2.6 mm, 2.9
+   degrees. A marker's own accuracy at 0.3 m with this camera: 1-2 mm, 1-2
+   degrees tilted, 4-5 degrees square-on. The live preview draws markers
+   with their ids. Print them with `scripts/aruco_markers.py`.
+   *Send to sim* (`src/processing/transfer.py` -> `sim.npz`): that motion in
+   the robot hand's frame - the person's palm laid on the robot's, fingers to
+   fingers, palm-out to palm-out, anchored where the World section places
+   the calibration object. With *show in sim*, a translucent cyan ghost box
+   in the world (`demo`, touching nothing) follows the player's frame. The
+   robot is a left hand; a right-hand demonstration is not mirrored yet.
+
+   Masks are used as the object's own region: SAM leaves stray specks far
+   from the object (on the first SAM 3 recording, in 345 of 411 frames),
+   which moved the measured centre by 17-28 px. `src/vision/regions.py`
+   keeps the largest piece and the pieces of the same object, and drops the
+   rest - when masks are made, measured and drawn.
 
 ## Assistant
 
@@ -267,16 +337,32 @@ shows or hides its sections.
   Apple silicon, answer the "Allow accessory to connect?" prompt when it is
   plugged in (System Settings > Privacy & Security > Allow accessories to
   connect). If FaceTime or Photo Booth can't see it, neither can this.
+  Under the camera's name, its calibration (focal length, error, date) or
+  *not calibrated*, and **Calibrate...**: a window with the live view, the
+  checkerboard's corners drawn when found, and where pictures were already
+  taken; *Take picture* / *Undo* / *Clear* (8 or more needed), *Calibrate*,
+  then *Save for <camera>*. Show the board (printed, or on a phone or
+  tablet) near and far, tilted every way and in every corner of the view.
+  The corner count is set there (`vision.checkerboard`, inner corners: a
+  board of 10 x 7 squares has 9 x 6); square size does not matter. Saved in
+  `settings.json` under `camera_calibration.<camera name>`, and written
+  into every recording made with that camera (`meta.json`). On synthetic
+  views it recovers the focal length to 0.1%.
+
   Below the status: *Record* / *Stop* and the *task* name; while recording,
   its length and frame count, then where it was saved.
 - **Recordings** - pick a recording (rescanned when the list opens); it
   plays at recorded speed (mirrored like the preview, if *mirror* is on);
   *Play*/*Pause* and a frame slider; switches for what is drawn on it:
-  *skeleton* (tracked hands), *masks* (segment step, one colour per object),
-  *boxes* (the context's box, on the frame it was given for). Then the
-  steps: **1 describe** (*Describe*), **2 segment** (model dropdown,
-  *Segment*, progress, *Cancel*; then how much of the recording each object
-  was found in). *sent frames*: the frames Describe sent, numbered as the
+  *skeleton* (tracked hands, cleaned once step 3 has run), *masks* (segment
+  step, one colour per object), *boxes* (the context's box, on the frame it
+  was given for), *axis* (each object's long axis through its centre).
+  Then the steps: **1 describe** (*Describe*), **2 segment** (model
+  dropdown, *Segment*, progress, *Cancel*; then how much of the recording
+  each object was found in), **3 hands** (*Clean hands*; how many hands,
+  labels corrected, phantoms dropped), **4 object motion** (*Measure*; who
+  holds each object, and a plot of its angle in the image and in the hand -
+  click the plot to move the player). *sent frames*: the frames Describe sent, numbered as the
   model saw them, with the same overlays - click one to show it in the
   player. *task context*: task, goal, objects (hover for the box), hands,
   phases, uncertain.
@@ -359,7 +445,8 @@ settings.set("hardware.port", "/dev/cu.usbserial-XYZ"); settings.save()
 | `hardware.temp_*` | temperature derate start and cutoff, deg C |
 | `hardware.motors` | per joint: motor `id`, mounting `sign` (±1), `zero` tick |
 | `motion_presets` | named sets of max speed + servo profile for the *motion* dropdown |
-| `vision.*` | camera on/off, which camera, capture size, mirror, tracker hands and confidences, model file |
+| `vision.*` | camera on/off, which camera, capture size, mirror, tracker hands and confidences, model file, checkerboard corners and square size, ArUco on/off, dictionary and printed size |
+| `camera_calibration` | per camera name: focal length, centre, distortion, error, at the size it was made |
 | `recording.*` | where recordings go (`data/tasks`), the task name being recorded |
 | `segment.model` | which SAM segments recordings: SAM 2.1 tiny/small/base+/large (box) or SAM 3 (name) |
 | `assistant.*` | provider, model names, Claude effort, max tokens, image size, clip frames, system prompt - no keys |
@@ -371,8 +458,9 @@ All take no arguments and read `settings.json`.
 
 | script | does |
 | --- | --- |
-| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), overlays |
+| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays |
 | `scripts/render.py` | `renders/world.png` - the world without a window |
+| `scripts/aruco_markers.py` | `renders/aruco_markers.png`: markers 0-5 at `vision.aruco_mm`, 300 dpi, with a 50 mm bar to check the print |
 | `scripts/hw_scan.py` | lists serial ports, pings every motor, prints joint angles. Read-only |
 | `scripts/hw_watch.py` | live encoder readout for checking motor signs and IDs. Read-only |
 
@@ -397,6 +485,9 @@ src/
   vision/overlay.py     draws the tracked hands on the frame
   vision/permission.py  asks macOS for camera access
   vision/devices.py     camera names in OpenCV's numbering
+  vision/calibration.py camera calibration from checkerboard pictures
+  vision/regions.py     an object's own region in a mask, without specks
+  vision/aruco.py       ArUco markers: detect, pose, the box centre behind one
   assistant/assistant.py  background question runner, API keys
   assistant/question.py   Question / Answer for every provider; frame -> JPEG
   assistant/context.py    the task context: JSON schema, instruction, context.json
@@ -404,6 +495,10 @@ src/
   recording/recorder.py   Recorder: writes an episode from the camera thread
   processing/job.py       Job: one step at a time off the GUI thread, with progress
   processing/segment.py   the segment step: SAM 2.1 / SAM 3 -> masks.npz
+  processing/hands.py     the hands step: follow, de-phantom, vote, fill, smooth
+  processing/objects.py   the object step: motion in the image and in the hand
+  processing/pose3d.py    Fit 3D: hand pose (PnP) and the box fitted to its outline
+  processing/transfer.py  Send to sim: onto the robot hand, for the world's ghost
   keys.py                 secrets (API keys, HF_TOKEN): environment, then .env
   assistant/claude.py     Anthropic Messages API
   assistant/openai_api.py OpenAI Responses API

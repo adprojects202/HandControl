@@ -17,7 +17,8 @@ tracker settings rebuild the tracker on the next frame; `mirror` applies on
 the next frame.
 
 Tracking and recording always use the true image, as the camera took it;
-`mirror` only flips the preview (`Frame.image`).
+`mirror` only flips the preview (`Frame.image`). With `vision.aruco`, ArUco
+markers are looked for too (about 1 ms a frame) and drawn on the preview.
 
 The real camera first needs the user's permission (permission.py): the
 first time, macOS asks whether the app running python (Terminal, VS Code,
@@ -35,7 +36,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from . import permission
+from . import aruco, permission
 from .overlay import draw
 from .tracker import HandTracker
 
@@ -58,6 +59,7 @@ class Frame:
     hands: list            # tracker.Hand, in `raw`'s coordinates
     time: float            # time.monotonic() at capture
     number: int            # counts up from 1; tells a reader a frame is new
+    markers: tuple = ()    # ArUco markers seen: (id, corners (4, 2) px), largest first
 
 
 class Camera:
@@ -143,6 +145,10 @@ class Camera:
                     tracker.close()
                     tracker, built_from = HandTracker(config), _pick(config, TRACKER)
                 rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                # Markers are found on the camera's own image, before anything
+                # is drawn: the preview's skeleton would cover them.
+                markers = (tuple(aruco.detect(rgb, config["aruco_dictionary"]))
+                           if config["aruco"] else ())
                 hands = tracker.track(rgb, now * 1000.0)
                 if last is not None and now > last:
                     rate = 1.0 / (now - last)
@@ -150,8 +156,11 @@ class Camera:
                                 FPS_SMOOTHING * self.fps + (1 - FPS_SMOOTHING) * rate)
                 last = now
                 number += 1
-                frame = Frame(raw=rgb, hands=hands, time=now, number=number,
-                              image=draw(rgb, hands, self.fps, mirror=config["mirror"]))
+                image = draw(rgb, hands, self.fps, mirror=config["mirror"])   # a copy
+                if markers:
+                    aruco.draw(image, markers, mirror=config["mirror"])
+                frame = Frame(raw=rgb, hands=hands, time=now, number=number, image=image,
+                              markers=markers)
                 self._frame = frame
                 if self.recorder is not None:
                     self.recorder.add(frame)

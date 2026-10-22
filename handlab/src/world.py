@@ -9,6 +9,9 @@ Contents:
     encoder hand   opaque white; the real robot, posed from its encoders
     command hand   translucent purple; the joint command sent to the robot
     object         the calibration box, when `object.enabled`
+    demo           a ghost of the box: a recorded object's motion, moved into
+                   the robot hand's frame (processing/transfer.py); parked out
+                   of sight until a recording is shown (`set_demo`)
 
 Both hands stand on one mount, turned by `world.hand_orientation`. They are
 KINEMATIC: posed by writing their joint angles, never driven by physics, and
@@ -29,6 +32,7 @@ a bit with the other's conaffinity:
     floor    contype 0, conaffinity 1    stops the object only
     encoder  contype 2, conaffinity 0    pushes the object only - never itself
     command  contype 0, conaffinity 0    a ghost: touches nothing
+    demo     contype 0, conaffinity 0    a ghost: touches nothing
 
 FRICTION AND STIFFNESS. MuJoCo gives a contact the larger friction of its two
 geoms - so with the hand at MuJoCo's default 1.0, a lower object value would
@@ -65,6 +69,9 @@ HANDS = ("encoder", "command")
 # everything that should be seen stays in 0-2.
 GROUPS = {"object": 0, "encoder": 1, "command": 2}
 OBJECT = "object"
+DEMO = "demo"
+DEMO_RGBA = [0.35, 0.85, 1.0, 0.35]
+PARKED = np.array([0.0, 0.0, -10.0])     # where the demo ghost waits, out of sight
 
 # The hand mount's rotation (x, y, z Euler, degrees) for each orientation. In
 # the hand's own frame the palm faces +x, the fingers run along +z and the
@@ -110,6 +117,8 @@ class World:
             self._object_qadr, self._object_vadr = joint.qposadr[0], joint.dofadr[0]
             self._object_body = self.model.body(OBJECT).id
             self._object_geom = self.model.geom(OBJECT).id
+        self._demo = self.model.body_mocapid[self.model.body(DEMO).id]
+        self.data.mocap_pos[self._demo] = PARKED
         self.object, self.placed = None, None
         return self.apply()
 
@@ -136,6 +145,16 @@ class World:
                 self.reset_object()
         self.hold()
         return self
+
+    def set_demo(self, pose):
+        """Put the demo ghost at `pose` - (position m, quaternion w x y z) in
+        the hand mount's frame, as processing/transfer.py gives it - or park
+        it out of sight with None."""
+        if pose is None:
+            self.data.mocap_pos[self._demo] = PARKED
+            return
+        position, quat = _compose(self.mount, *pose)
+        self.data.mocap_pos[self._demo], self.data.mocap_quat[self._demo] = position, quat
 
     def reset_object(self):
         """Put the object back where it is placed, at rest."""
@@ -238,6 +257,7 @@ def _build(robot, config, obj):
              for hand in HANDS}
     if obj["enabled"]:
         _add_object(world, obj, config["timestep"])
+    _add_demo(world, obj)
     return world, bases
 
 
@@ -283,6 +303,15 @@ def _add_object(world, obj, timestep):
                   # its friction and stiffness win in every contact it makes
                   priority=1, friction=[obj["friction"], 0.005, 0.0001],
                   solref=[2.0 * timestep, 1.0])
+
+
+def _add_demo(world, obj):
+    """The demo ghost: a box the size of the calibration object, kinematic
+    (mocap), touching nothing."""
+    body = world.worldbody.add_body(name=DEMO, mocap=True, pos=PARKED)
+    body.add_geom(name=DEMO, type=mujoco.mjtGeom.mjGEOM_BOX,
+                  size=np.array(obj["size_mm"]) / 2000.0, rgba=DEMO_RGBA,
+                  group=GROUPS["object"], contype=0, conaffinity=0)
 
 
 def _children(body):

@@ -1,7 +1,9 @@
 """One recording ("episode") of a person doing a task, on disk.
 
     data/tasks/<task>/<YYYYmmdd-HHMMSS>/
-        meta.json     what was recorded, with what (format, camera, tracker, ...)
+        meta.json     what was recorded, with what (format, camera, tracker, ...);
+                      camera.calibration: the camera's calibration at the
+                      recorded size when it had one (vision/calibration.py)
         video.mp4     the frames, H.264, as the camera took them (never mirrored)
         frames.npz    time (N,) s since the first frame - one clock for everything
         hands.npz     per frame, slot 0 = the person's left hand, 1 = right:
@@ -17,6 +19,15 @@
                         area   (O, N) fraction of the image covered
                         names, roles (O,); prompt_frame (O,); prompt_box (O, 4) px
                         model, made: what made it, when
+        hands_clean.npz  from the hands step (processing/hands.py): the same
+                      hands as hands.npz, but each slot is one physical hand
+                      followed through the recording and named by vote:
+                        image, world, score (NaN: filled), present (N, 2, ...)
+                        observed, filled (N, 2) bool; track (N, 2) int (-1: none)
+                        track_side, track_frames (T,); tracks, relabelled,
+                        phantoms (detections dropped), filled_frames
+        object.npz    from the object step (processing/objects.py), per mask
+                      track, in the image: see that module
 
 Recording writes video.mp4 as it goes and the arrays when it stops; meta.json
 is written at the start with "complete": false and finished at the stop, so
@@ -35,12 +46,16 @@ import cv2
 import numpy as np
 
 from .. import paths, settings
+from ..vision.calibration import Calibration, for_camera
+from ..vision.regions import main_region
 from ..vision.tracker import LANDMARKS, SIDES, Hand
 
-FORMAT = 1
-META, VIDEO, FRAMES, HANDS, ROBOT, CONTEXT, MASKS = (
-    "meta.json", "video.mp4", "frames.npz", "hands.npz", "robot.npz", "context.json",
-    "masks.npz")
+# 2: hands.npz slots are the person's own hands. Format 1 (until 2026-10-22)
+# stored them swapped - left in the right slot - and is swapped back on read.
+FORMAT = 2
+META, VIDEO, FRAMES, HANDS, ROBOT, CONTEXT = (
+    "meta.json", "video.mp4", "frames.npz", "hands.npz", "robot.npz", "context.json")
+MASKS, HANDS_CLEAN, OBJECT = "masks.npz", "hands_clean.npz", "object.npz"
 STAMP = "%Y%m%d-%H%M%S"
 
 
@@ -95,10 +110,12 @@ class Episode:
         self.meta = json.loads((self.folder / META).read_text())
         self.times = self._arrays(FRAMES).get("time", np.zeros(0))
         self.hands = self._arrays(HANDS)
+        if self.hands and self.meta.get("format", 1) < 2:
+            self.hands = {key: value[:, ::-1] for key, value in self.hands.items()}
         self.robot = self._arrays(ROBOT)
         self._video = None
         self._next = 0                   # the frame the video reads next
-        self._masks = None
+        self._steps = {}                 # step file name -> its arrays
 
     @property
     def name(self):
@@ -120,27 +137,53 @@ class Episode:
     def save_context(self, context):
         write_json(self.folder / CONTEXT, context)
 
+    def arrays(self, name):
+        """A step's arrays (e.g. MASKS) as a dict - {} before the step has
+        run. Read once; `reload()` after a step rewrites its file."""
+        if name not in self._steps:
+            self._steps[name] = self._arrays(name)
+        return self._steps[name]
+
+    def save_arrays(self, name, arrays):
+        tmp = self.folder / (name + ".tmp.npz")
+        np.savez_compressed(tmp, **arrays)
+        tmp.replace(self.folder / name)
+        self._steps.pop(name, None)
+
+    def reload(self):
+        self._steps.clear()
+
+    @property
+    def calibration(self):
+        """The camera's calibration for this recording: the one recorded with
+        it, else the one saved for that camera now (scaled to the recorded
+        size), else None."""
+        camera = self.meta.get("camera", {})
+        if camera.get("calibration"):
+            return Calibration.from_entry(camera["calibration"])
+        if camera.get("name") and camera.get("width"):
+            return for_camera(camera["name"], camera["width"], camera["height"])
+        return None
+
     @property
     def masks(self):
-        """masks.npz as a dict, or {} before the segment step has run."""
-        if self._masks is None:
-            self._masks = self._arrays(MASKS)
-        return self._masks
+        """masks.npz (segment step), or {}."""
+        return self.arrays(MASKS)
 
-    def reload_masks(self):
-        self._masks = None
+    @property
+    def clean_hands(self):
+        """hands_clean.npz (hands step), or {}."""
+        return self.arrays(HANDS_CLEAN)
 
-    def mask(self, track, index):
-        """Track `track`'s mask in frame `index`, (H, W) bool."""
+    def mask(self, track, index, stored=False):
+        """Track `track`'s mask in frame `index`, (H, W) bool: the object's
+        own region (vision/regions.py) - or, with `stored`, the pixels as
+        saved, specks and all."""
         width = int(self.masks["width"])
-        return np.unpackbits(self.masks["masks"][track, index], axis=-1,
+        mask = np.unpackbits(self.masks["masks"][track, index], axis=-1,
                              count=width).astype(bool)
+        return mask if stored else main_region(mask)
 
-    def save_masks(self, arrays):
-        tmp = self.folder / (MASKS + ".tmp.npz")
-        np.savez_compressed(tmp, **arrays)
-        tmp.replace(self.folder / MASKS)
-        self._masks = None
 
     def image(self, index):
         """Frame `index` as RGB (the true image), or None past the end."""
@@ -172,13 +215,16 @@ class Episode:
             video.release()
         return [found[index] for index in sorted(found)]
 
-    def hands_at(self, index):
-        """The tracked hands of frame `index`, as tracker.Hand."""
-        if not self.hands:
+    def hands_at(self, index, clean=True):
+        """The hands of frame `index`, as tracker.Hand: the hands step's when
+        it has run (and `clean`), else as recorded. A filled-in hand has a
+        NaN score."""
+        hands = (self.clean_hands if clean else {}) or self.hands
+        if not hands:
             return []
-        return [Hand(side, float(self.hands["score"][index, slot]),
-                     self.hands["image"][index, slot], self.hands["world"][index, slot])
-                for slot, side in enumerate(SIDES) if self.hands["present"][index, slot]]
+        return [Hand(side, float(hands["score"][index, slot]),
+                     hands["image"][index, slot], hands["world"][index, slot])
+                for slot, side in enumerate(SIDES) if hands["present"][index, slot]]
 
     def sample(self, count):
         """`count` frame indices spread evenly over the recording, first and
