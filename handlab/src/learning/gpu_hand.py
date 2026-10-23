@@ -7,7 +7,7 @@ sims stepped at once by MuJoCo Warp (gpu.Worlds), PPO (rsl_rl) on the GPU.
     results = evaluate(bundle, folder, checkpoint, config)
 
 An episode follows one clip of the hand library: each step (1/RATE s) the
-action moves the servo targets (at most ACTION_SCALE rad), then the hand sim
+action moves the servo targets (at most handmotion.ACTION_SCALE rad), then the hand sim
 runs to the next frame, and the reward is how close the robot's shape is to
 the clip's shape there:
 
@@ -24,10 +24,9 @@ recorded one at rest. Physics and observations are randomized as the
 tracker's are (env.py): servo strength, the target arriving late, joint
 noise.
 
-Observations. "policy": joints, the joints one step before, the servo
-targets, the robot's shape now (FEATURES), and the shape to take
-FUTURE_STEPS steps ahead, each less the shape now. "privileged" (the critic
-only): joint speeds and the servo strength drawn.
+Observations. "policy": handmotion.observation - the same wherever the
+hand runs (hand_follow.py on the Mac). "privileged" (the critic only):
+joint speeds and the servo strength drawn.
 
 The bundle (handmotion.export_bundle, made on the Mac): hand_library.npz,
 the hand sim as MJCF (hand.xml) and bundle.json - where the robot's 16
@@ -46,10 +45,9 @@ from tensordict import TensorDict
 
 from . import env as cpu
 from .gpu import LINESEARCH_ITERATIONS, SOLVER_ITERATIONS, Worlds
-from .handmotion import FEATURES, LIBRARY, RATE, load, shape
+from .handmotion import (ACTION_SCALE, FUTURE_STEPS, LIBRARY, RATE, errors, load,
+                         observation, shape)
 
-ACTION_SCALE = cpu.ACTION_SCALE
-FUTURE_STEPS = (1, 3, 6)
 ANGLE_SCALE = 0.3                # rad
 TIP_SCALE = 0.1                  # palm lengths
 PINCH_SCALE = 0.08               # palm lengths
@@ -58,7 +56,6 @@ PINCH_WEIGHT = 0.5
 TARGET_COST = 0.5
 SMOOTH_COST = 2.0
 REST_SHARE = 0.2
-SEGMENTS = 12
 SETTINGS = ("ACTION_SCALE", "FUTURE_STEPS", "ANGLE_SCALE", "TIP_SCALE", "PINCH_SCALE",
             "TIP_WEIGHT", "PINCH_WEIGHT", "TARGET_COST", "SMOOTH_COST", "REST_SHARE")
 
@@ -225,28 +222,6 @@ class GpuHandEnv(VecEnv):
 
     def _noise(self, shape_, scale):
         return torch.randn(shape_, generator=self.generator, device=self.device) * scale
-
-
-def observation(joints, previous, targets, now, goals):
-    """The policy's input (n, 3 J + FEATURES (1 + len(FUTURE_STEPS))): what
-    the robot reads, its shape now, and the shapes ahead (n, steps, FEATURES)
-    less the shape now - the same wherever the hand runs."""
-    return torch.cat([joints, previous, targets, now,
-                      (goals - now[:, None]).reshape(len(now), -1)], dim=1)
-
-
-def errors(robot, goal):
-    """(segment angle rad, tip error, pinch error - palm lengths), each (n,),
-    between shapes (n, FEATURES)."""
-    directions = SEGMENTS * 3
-    dot = (robot[:, :directions].reshape(-1, SEGMENTS, 3)
-           * goal[:, :directions].reshape(-1, SEGMENTS, 3)).sum(dim=-1)
-    angle = torch.arccos(torch.clamp(dot, -1.0, 1.0)).mean(dim=1)
-    tips = directions + 12
-    tip = torch.linalg.norm((robot[:, directions:tips] - goal[:, directions:tips]).reshape(-1, 4, 3),
-                            dim=-1).mean(dim=1)
-    pinch = (robot[:, tips:FEATURES] - goal[:, tips:FEATURES]).abs().mean(dim=1)
-    return angle, tip, pinch
 
 
 def train(bundle, folder, envs, iterations, config, writer_config, device="cuda:0",

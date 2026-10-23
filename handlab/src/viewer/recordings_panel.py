@@ -23,17 +23,23 @@ recording's folder:
                 Fit 3D: the hands and the object in metres, from the
                 camera's calibration and the object's known size, and the
                 object in the palm -> pose3d.npz; plotted like step 4.
-                Send to sim: that motion in the robot hand's frame -> sim.npz;
-                with "show in sim", a ghost box in the world follows the
-                player's frame
-    6 Plan in sim
+                Send to sim: the person's hand laid on the robot's palm ->
+                hand_sim.npz, and once fitted in 3D the object's motion in
+                the robot hand's frame -> sim.npz; with "show in sim", the
+                hand as a skeleton on the plan stage and a ghost box at the
+                hand follow the player's frame
+    6 Follow the hand
+                the trained hand-motion policy takes the shape of the
+                person's hand in the hand sim -> follow.npz; with "show in
+                sim", the plan stage's hand replays it under the skeleton
+    7 Plan in sim
                 the robot hand, with its servos, grips the object and
                 follows that motion in the task sim -> plan.npz; with "show
                 in sim", the plan stage beside the hand replays it at the
                 player's frame
-    7 Run the trained policy
+    8 Run the trained policy
                 the trained policy (src/learning) follows that motion - no
-                retraining: the one-shot test -> track.npz; shown like step 6
+                retraining: the one-shot test -> track.npz; shown like step 7
 
 "Sent frames" shows the frames Describe sent, numbered as the model saw
 them, with the same overlays; click one to jump the player there.
@@ -53,12 +59,13 @@ from .. import settings
 from ..assistant import context, jpeg
 from ..processing.hands import clean_hands
 from ..processing.objects import measure_objects
-from ..processing.files import PLAN, TRACK, stale
+from ..processing.files import FOLLOW, HAND_SIM, PLAN, TRACK, stale
+from ..processing.follow import follow_hand, summary as follow_summary
 from ..processing.plan import plan, summary as plan_summary
 from ..learning.train import chosen_run
 from ..processing.track import track as track_with_tracker
 from ..processing.pose3d import POSE3D, edges as box_edges, fit_3d, load as load_pose, project
-from ..processing.transfer import SIM, transfer
+from ..processing.transfer import SIM, send_to_sim
 from ..processing.segment import segment
 from ..recording import Episode, episodes
 from ..vision.overlay import draw, object_colour
@@ -83,14 +90,17 @@ class RecordingsSection:
     title = "Recordings"
 
     def __init__(self, assistant, job, show_demo=lambda pose: None,
-                 show_plan=lambda frame: None):
+                 show_plan=lambda frame: None, show_skeleton=lambda points: None):
         """`show_demo(pose or None)` puts the sim's demo ghost where a
         transferred recording's object is at the player's frame;
-        `show_plan(frame or None)` shows the plan stage at it (World.set_plan)."""
+        `show_plan(frame or None)` shows the plan stage at it (World.set_plan);
+        `show_skeleton(points or None)` the person's hand on the stage
+        (World.set_skeleton)."""
         self.assistant = assistant
         self.job = job                   # processing.Job: one step at a time
         self.show_demo = show_demo
         self.show_plan = show_plan
+        self.show_skeleton = show_skeleton
         self.in_sim = True
         self.stage_shows = TRACK             # on the plan stage, when both exist
         self.form = SettingsForm(lambda: None)
@@ -159,23 +169,31 @@ class RecordingsSection:
                    "shape, the object as a box of the World section's object size",
                    done=bool(episode.arrays(POSE3D)))
         self._pose3d(episode)
-        self._step(episode, "transfer", "Send to sim", transfer,
-                   "" if episode.arrays(POSE3D) else "fit 3D first",
-                   "the object's motion in the robot hand's frame, anchored where "
-                   "the World section places the calibration object",
-                   done=bool(episode.arrays(SIM)))
+        self._step(episode, "transfer", "Send to sim", send_to_sim,
+                   "" if (episode.clean_hands or episode.hands) else "the recording has no hands",
+                   "the person's hand laid on the robot's palm (a skeleton on the plan "
+                   "stage); and, once fitted in 3D, the object's motion in the robot "
+                   "hand's frame, placed as the World section's training setting says",
+                   done=bool(episode.arrays(HAND_SIM) or episode.arrays(SIM)))
         self._sim(episode)
-        imgui.SeparatorText("6  plan in sim")
+        imgui.SeparatorText("6  follow the hand")
+        self._step(episode, "follow", "Follow", follow_hand, self._blocked_follow(episode),
+                   "the trained hand-motion policy (Learning, learn: hand motion) takes the "
+                   "shape of the person's hand through the recording - in the hand sim, no "
+                   "object, no retraining; the plan stage replays it under the skeleton",
+                   done=bool(episode.arrays(FOLLOW)))
+        frames = {FOLLOW: self._follow_result(episode)}
+        imgui.SeparatorText("7  plan in sim")
         self._step(episode, "plan", "Plan", plan, self._blocked_plan(episode),
                    "the robot hand, with its servos and the World section's mount, "
                    "searches for a grip on the object, then follows the motion sent "
                    "to sim - no training; about 20 s",
                    done=bool(episode.arrays(PLAN)))
-        frames = {PLAN: self._sim_result(episode, PLAN, "planned")}
-        imgui.SeparatorText("7  run the trained policy")
+        frames[PLAN] = self._sim_result(episode, PLAN, "planned")
+        imgui.SeparatorText("8  run the trained policy")
         self._step(episode, "track", "Run", track_with_tracker, self._blocked_track(episode),
                    "the trained policy (Learning > Runs) follows this motion - no retraining, "
-                   "the one-shot test; the grip is step 6's when current, else searched "
+                   "the one-shot test; the grip is step 7's when current, else searched "
                    "(about 10 s)",
                    done=bool(episode.arrays(TRACK)))
         frames[TRACK] = self._sim_result(episode, TRACK, "run")
@@ -394,29 +412,85 @@ class RecordingsSection:
             imgui.PopTextWrapPos()
 
     def _sim(self, episode):
-        """The transferred motion's summary, and the ghost in the sim."""
-        sim = episode.arrays(SIM)
-        if not sim:
+        """What was sent to sim, and the skeleton and ghost box in the sim."""
+        hand, sim = episode.arrays(HAND_SIM), episode.arrays(SIM)
+        if not hand and not sim:
             self.show_demo(None)
+            self.show_skeleton(None)
             return
         imgui.SameLine()
         _, self.in_sim = imgui.Checkbox("show in sim", self.in_sim)
-        imgui.SetItemTooltip("a ghost box in the world follows this recording's "
-                             "object at the player's frame, and the plan stage "
-                             "beside the hand replays the plan")
+        imgui.SetItemTooltip("the person's hand stands on the plan stage beside the hand as "
+                             "a skeleton, a ghost box at the hand follows this recording's "
+                             "object, and the plan stage replays step 6, 7 or 8 - all at "
+                             "the player's frame")
+        index = self._index
+        if hand:
+            mirrored = " (mirrored onto the robot's left)" if str(hand["side"]) == "Right" else ""
+            imgui.TextDisabled(f"hand: {int(hand['present'].sum())} frames of the "
+                               f"{str(hand['side']).lower()} hand{mirrored}")
+            if HAND_SIM in stale(episode):
+                imgui.TextColored(AMBER, f"out of date - {stale(episode)[HAND_SIM]}")
+            shown = self.in_sim and hand["present"][index]
+            self.show_skeleton(hand["skeleton"][index].astype(float) if shown else None)
+        else:
+            self.show_skeleton(None)
+        if not sim:
+            imgui.TextDisabled("object: fit 3D, then Send to sim again")
+            self.show_demo(None)
+            return
         note = ("" if str(sim["hand"]) == "Left" else
                 " - recorded with the right hand: not yet mirrored for the robot's "
                 "left hand")
-        imgui.TextDisabled(f"{int(sim['valid'].sum())} frames in the robot hand's frame"
-                           f"{note}")
+        imgui.TextDisabled(f"object: {int(sim['valid'].sum())} frames in the robot hand's "
+                           f"frame{note}")
         if SIM in stale(episode):
             imgui.TextColored(AMBER, f"out of date - {stale(episode)[SIM]}")
-        index = self._index
         if self.in_sim and sim["valid"][index]:
             self.show_demo((sim["position"][index].astype(float),
                             sim["quat"][index].astype(float)))
         else:
             self.show_demo(None)
+
+    @staticmethod
+    def _blocked_follow(episode):
+        """Follow sends the hand to sim afresh itself; it needs the hands and
+        a hand-motion run."""
+        if not (episode.clean_hands or episode.hands):
+            return "the recording has no hands"
+        if chosen_run("hand motion") is None:
+            return "no hand-motion run yet (Learning panel, learn: hand motion)"
+        return ""
+
+    def _follow_result(self, episode):
+        """Step 6's summary and errors; returns the plan stage's frame at the
+        player's frame - the hand alone - or None."""
+        result = episode.arrays(FOLLOW)
+        if not result:
+            return None
+        if FOLLOW in stale(episode):
+            imgui.TextColored(AMBER, f"out of date - {stale(episode)[FOLLOW]}")
+        imgui.TextDisabled(f"hand-motion policy: run {Path(str(result['run'])).name}, "
+                           f"{result['checkpoint']}")
+        numbers = follow_summary(result)
+        imgui.TextDisabled(f"following: finger segments {numbers['angle_deg']:.0f} deg, "
+                           f"fingertips {numbers['tip_mm']:.0f} mm off (median) - at rest it "
+                           f"would be {numbers['still_angle_deg']:.0f} deg, "
+                           f"{numbers['still_tip_mm']:.0f} mm")
+        times = [float(t) for t in result["time"]]
+        if implot.BeginPlot("##follow", imgui.Vec2(-1, 170)):
+            implot.SetupAxes("s", "deg / mm")
+            for key, label, scale in (("angle_error", "segments off (deg)", np.degrees(1)),
+                                      ("tip_error", "tips off (mm)", 1000),
+                                      ("still_angle_error", "at rest: segments off (deg)",
+                                       np.degrees(1)),
+                                      ("still_tip_error", "at rest: tips off (mm)", 1000)):
+                implot.PlotLine(label, times, [float(v) for v in result[key] * scale])
+            self._plot_cursor(episode, 3)
+            implot.EndPlot()
+        moment = float(episode.times[self._index])
+        row = int(np.clip(np.searchsorted(result["time"], moment), 0, len(result["time"]) - 1))
+        return result["qpos"][row].astype(float), None, None
 
     @staticmethod
     def _blocked_plan(episode):
@@ -443,15 +517,19 @@ class RecordingsSection:
         was made for where the object was), nor anything while Plan or Run
         works on this recording."""
         if self.job.busy and self.job.label in (f"plan {episode.folder}",
-                                                f"track {episode.folder}"):
+                                                f"track {episode.folder}",
+                                                f"follow {episode.folder}"):
             self.show_plan(None)
             return
         out_of_date = stale(episode)              # made for another placement or motion
         shown = {name: frame for name, frame in frames.items()
                  if frame is not None and name not in out_of_date}
-        if len(shown) == 2:
+        if len(shown) > 1:
             imgui.TextDisabled("plan stage shows:")
-            for name, label in ((PLAN, "plan"), (TRACK, "trained policy")):
+            for name, label in ((FOLLOW, "hand follow"), (PLAN, "plan"),
+                                (TRACK, "trained policy")):
+                if name not in shown:
+                    continue
                 imgui.SameLine()
                 if imgui.RadioButton(label, self.stage_shows == name):
                     self.stage_shows = name

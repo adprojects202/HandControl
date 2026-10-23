@@ -61,6 +61,7 @@ class App:
         self._reset_object = False
         self._demo = None           # the demo ghost's pose in the mount frame, or None
         self._plan = None           # the plan stage's frame (World.set_plan), or None
+        self._skeleton = None       # a person's hand on the stage (World.set_skeleton), or None
 
     def tick(self, dt):
         if self._apply_world:
@@ -71,6 +72,7 @@ class App:
             self.world.reset_object()
         self.world.set_demo(self._demo)
         self.world.set_plan(self._plan)
+        self.world.set_skeleton(self._skeleton)
         command = self.controller.step(dt)
         self.bus.send(command)
         self.world.set_pose("command", command)
@@ -108,6 +110,11 @@ class App:
         (World.set_plan), or hide it (None)."""
         self._plan = frame
 
+    def show_skeleton(self, points):
+        """Show a person's hand on the plan stage - its landmarks (21, 3) m
+        in the hand mount's frame - or hide it (None)."""
+        self._skeleton = points
+
     def apply_settings(self):
         """Push saved settings into the running parts (after a GUI edit)."""
         self.controller.max_speed = settings.get("control.max_speed")
@@ -144,7 +151,7 @@ class App:
                 CameraSection(self.camera, self.recorder, self.apply_vision,
                               self.back_camera),
                 RecordingsSection(self.assistant, self.processing, self.show_demo,
-                                  self.show_plan),
+                                  self.show_plan, self.show_skeleton),
                 AssistantSection(self.assistant, self.camera),
             ], beside="Options"),
             SidePanel("Learning", [

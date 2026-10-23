@@ -223,8 +223,8 @@ DEFAULTS = {
         "envs": 2048,           # copies of the task sim stepped together
         "iterations": 1500,     # ppo rounds; ~5 s each with 2048 copies (M4 Max)
         "teacher_rounds": 4,    # planner_teacher rounds; ~20 min each (170 motions)
-        "run": "",              # the run Recordings step 7 uses; "" = the newest
-        "hand_run": "",         # the hand-motion run the app uses; "" = the newest
+        "run": "",              # the run Recordings step 8 uses; "" = the newest
+        "hand_run": "",         # the hand-motion run Recordings step 6 uses; "" = the newest
         # Training on the ClearML agent's GPU (src/learning/remote.py, gpu.py):
         # its queue, and how many task sims the GPU steps together.
         "clearml_queue": "windows-rtx3090",

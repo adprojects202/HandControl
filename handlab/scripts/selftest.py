@@ -1432,20 +1432,29 @@ def plan_step_saves_its_file_and_out_of_date_files_are_flagged():
 
 @check
 def out_of_date_files_follow_what_they_were_made_from():
-    from src.processing.files import PLAN, POSE3D, SIM, TRACK, stale
+    from src.processing.files import FOLLOW, HAND_SIM, PLAN, POSE3D, SIM, TRACK, stale
+    from src.recording.episode import HANDS_CLEAN
+    # Placed as the World section places the object now, whatever it says.
+    placed = {"placement": np.array(settings.get("object.training")),
+              "position_mm": np.array(settings.get("object.position_mm"), float)}
     with tempfile.TemporaryDirectory() as tmp:
         folder = Path(tmp) / "task" / "20261023-000000"
         _bare_episode(folder, 3)
-        for name, made in ((POSE3D, "10:00"), (SIM, "10:01"), (PLAN, "10:02"), (TRACK, "10:03")):
-            np.savez(folder / name, made=np.array(f"2026-10-23T{made}:00"))
+        for name, made in ((HANDS_CLEAN, "09:58"), (HAND_SIM, "09:59"), (FOLLOW, "09:59"),
+                           (POSE3D, "10:00"), (SIM, "10:01"), (PLAN, "10:02"), (TRACK, "10:03")):
+            np.savez(folder / name, made=np.array(f"2026-10-23T{made}:00"),
+                     **(placed if name == SIM else {}))
         episode = Episode(folder)
         assert stale(episode) == {}
-        np.savez(folder / SIM, made=np.array("2026-10-23T10:05:00"))      # sent to sim again
+        np.savez(folder / SIM, made=np.array("2026-10-23T10:05:00"), **placed)   # sent again
         episode.reload()
         assert set(stale(episode)) == {PLAN, TRACK}
         np.savez(folder / POSE3D, made=np.array("2026-10-23T10:09:00"))   # and fitted again
         episode.reload()
         assert set(stale(episode)) == {SIM, PLAN, TRACK}
+        np.savez(folder / HANDS_CLEAN, made=np.array("2026-10-23T10:10:00"))  # hands again
+        episode.reload()
+        assert set(stale(episode)) == {HAND_SIM, FOLLOW, SIM, PLAN, TRACK}
 
 
 @check
@@ -1706,6 +1715,41 @@ def hand_shapes_match_between_a_person_and_the_robot():
     mirrored = world * [-1.0, 1.0, 1.0]
     assert np.allclose(handmotion.human_features(world, "Left"),
                        handmotion.human_features(mirrored, "Right"), atol=1e-9)
+
+
+@check
+def a_persons_hand_stands_on_the_robot_palm_in_the_sim():
+    from src.learning import handmotion
+    from src.world import PLAN_OFFSET, _compose
+    from src.robot import load
+    import mujoco
+    # A person's hand, turned anyhow: its wrist lands on the robot's wrist,
+    # its middle knuckle on the robot's, a palm length (the robot's) on.
+    rng = np.random.default_rng(1)
+    world = rng.normal(size=(21, 3)) * 0.03
+    turn = np.linalg.qr(rng.normal(size=(3, 3)))[0]
+    turn *= np.sign(np.linalg.det(turn))
+    palm = handmotion.mount_palm()
+    laid = handmotion.on_robot(handmotion.in_palm(world @ turn.T, "Left"), palm)
+    assert np.allclose(laid[0], palm[0]), "wrist on the robot's wrist"
+    robot = load()
+    model = robot.spec().compile()
+    data = mujoco.MjData(model)
+    mujoco.mj_kinematics(model, data)
+    knuckle = data.xanchor[model.joint("middle_proximal_joint").id]
+    assert np.allclose(laid[9], knuckle, atol=1e-6), (laid[9], knuckle)
+    # In the world: on the plan stage beside the hand, then parked.
+    sim = _world_with()
+    sim.set_skeleton(laid)
+    sim.hold()
+    stage = (sim.mount[0] + PLAN_OFFSET, sim.mount[1])
+    placed, _ = _compose(stage, laid[9], np.array([1.0, 0, 0, 0]))
+    assert np.allclose(sim.data.mocap_pos[sim._skeleton[9]], placed)
+    mujoco.mj_forward(sim.model, sim.data)
+    bone = sim.model.tendon("skeleton/bone9").id               # middle knuckle to next
+    assert np.isclose(sim.data.ten_length[bone], np.linalg.norm(laid[10] - laid[9]))
+    sim.set_skeleton(None)
+    assert (sim.data.mocap_pos[sim._skeleton][:, 2] < -1).all(), "parked out of sight"
 
 
 def _six_back(six):

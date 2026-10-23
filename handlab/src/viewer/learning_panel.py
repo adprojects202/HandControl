@@ -11,9 +11,10 @@ responsive, and a run goes on when the window closes; Cancel stops it.
               it learns, live
     Runs      the runs learning it: object tracking - the recordings (never
               trained on) and the motions it trained on, next to the planner
-              and to holding still, which run Recordings step 7 uses, Test
+              and to holding still, which run Recordings step 8 uses, Test
               for a run not yet tested; hand motion - the random motions and
-              the recorded hands, next to holding still
+              the recorded hands, next to holding still, which run
+              Recordings step 6 uses
 """
 
 from __future__ import annotations
@@ -301,15 +302,15 @@ class RunsSection:
             imgui.TextDisabled(f"no {learn} runs yet")
             return
         chosen = train.chosen_run(learn)
-        imgui.TextDisabled("the hand follows a person's hand with the run picked here"
-                           if learn == HAND else "Recordings step 7 uses the run picked here")
+        imgui.TextDisabled("Recordings step 6 (follow the hand) uses the run picked here"
+                           if learn == HAND else "Recordings step 8 uses the run picked here")
         for folder in self._runs:
             config, evaluation, rows = self._read(folder)
             trained = any(folder.glob("model_*.pt"))
             if imgui.RadioButton(f"##use{folder.name}", folder == chosen) and trained:
                 self.form.save(train.LEARN[learn], folder.name)
-            imgui.SetItemTooltip(("use this run" if learn == HAND else
-                                  "use this run for Recordings step 7")
+            imgui.SetItemTooltip(("use this run for Recordings step 6" if learn == HAND else
+                                  "use this run for Recordings step 8")
                                  if trained else "no checkpoint yet")
             imgui.SameLine()
             # Runs from before progress.jsonl: count by their last checkpoint.

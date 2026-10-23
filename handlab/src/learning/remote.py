@@ -22,7 +22,7 @@ The pipeline's controller runs here, in this process (one agent runs the
 step; a controller queued on it would wait for itself). While it runs, the
 step's progress and last error numbers go into the status file, so the
 Learning panel shows them; the finished run is unpacked into
-data/learning/runs, where Runs and Recordings step 7 take it like a run
+data/learning/runs, where Runs and Recordings step 8 take it like a run
 trained here. Cancel (SIGTERM) stops the pipeline on ClearML too.
 """
 

@@ -17,6 +17,11 @@ Contents:
                    where the recording wanted it - beside the real hand, at
                    PLAN_OFFSET, so nothing overlaps; parked out of sight until
                    a plan is shown (`set_plan`)
+    skeleton       a person's hand on the plan stage, laid on the robot's palm
+                   (processing/transfer.py): a ball per landmark (mocap
+                   bodies) and a bone between them (a spatial tendon between
+                   sites on the balls - drawn at whatever length the balls
+                   leave it); parked until a hand is shown (`set_skeleton`)
 
 The encoder and command hands stand on one mount, turned by
 `world.hand_orientation`; the plan hand on the same mount moved by
@@ -39,6 +44,7 @@ a bit with the other's conaffinity:
     encoder  contype 2, conaffinity 0    pushes the object only - never itself
     command  contype 0, conaffinity 0    a ghost: touches nothing
     demo     contype 0, conaffinity 0    a ghost: touches nothing
+    skeleton contype 0, conaffinity 0    a ghost: touches nothing
     plan stage (hand, object, goal) contype 0, conaffinity 0: posed, not simulated
 
 FRICTION AND STIFFNESS. MuJoCo gives a contact the larger friction of its two
@@ -79,6 +85,13 @@ OBJECT = "object"
 DEMO = "demo"
 DEMO_RGBA = [0.35, 0.85, 1.0, 0.35]
 PLAN_OBJECT, PLAN_GOAL = "plan_object", "plan_goal"
+SKELETON = "skeleton"
+SKELETON_RGBA = [1.0, 0.8, 0.25, 0.9]
+SKELETON_JOINT_M, SKELETON_BONE_M = 0.005, 0.003        # ball radius, bone width
+# MediaPipe's hand: landmark pairs joined by a bone.
+BONES = ((0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8), (5, 9), (9, 10),
+         (10, 11), (11, 12), (9, 13), (13, 14), (14, 15), (15, 16), (13, 17), (0, 17),
+         (17, 18), (18, 19), (19, 20))
 PLAN_OFFSET = np.array([0.0, 0.3, 0.0])  # m, world: the plan stage beside the real hand
 PARKED = np.array([0.0, 0.0, -10.0])     # where ghosts wait, out of sight
 
@@ -130,7 +143,10 @@ class World:
             self.model.body_mocapid[self.model.body(name).id]
             for name in (DEMO, PLAN_OBJECT, PLAN_GOAL))
         self.data.mocap_pos[[self._demo, self._plan_object, self._plan_goal]] = PARKED
-        self._plan_shown = False
+        self._skeleton = self.model.body_mocapid[[self.model.body(f"{SKELETON}/{i}").id
+                                                  for i in range(21)]]
+        self.data.mocap_pos[self._skeleton] = PARKED
+        self._plan_shown = self._skeleton_shown = False
         self.object, self.placed = None, None
         return self.apply()
 
@@ -171,7 +187,8 @@ class World:
     def set_plan(self, frame):
         """Show one moment of a plan on the plan stage - `frame` is (joint
         angles, object pose, goal pose), the poses (position m, quaternion
-        w x y z) in the hand mount's frame - or park the stage with None."""
+        w x y z) in the hand mount's frame, None for no object - or park the
+        stage with None."""
         self._plan_shown = frame is not None
         if frame is None:
             self.data.mocap_pos[[self._plan_object, self._plan_goal]] = PARKED
@@ -180,7 +197,23 @@ class World:
         self.set_pose("plan", q)
         stage = self._mount_of("plan")
         for mocap, pose in ((self._plan_object, object_pose), (self._plan_goal, goal_pose)):
-            self.data.mocap_pos[mocap], self.data.mocap_quat[mocap] = _compose(stage, *pose)
+            if pose is None:
+                self.data.mocap_pos[mocap] = PARKED
+            else:
+                self.data.mocap_pos[mocap], self.data.mocap_quat[mocap] = _compose(stage, *pose)
+
+    def set_skeleton(self, points):
+        """Show a person's hand on the plan stage - `points` (21, 3) m, its
+        landmarks in the hand mount's frame, as processing/transfer.py lays
+        them on the robot's palm - or park it with None."""
+        self._skeleton_shown = points is not None
+        if points is None:
+            self.data.mocap_pos[self._skeleton] = PARKED
+            return
+        position, quat = self._mount_of("plan")
+        rotation = np.zeros(9)
+        mujoco.mju_quat2Mat(rotation, quat)
+        self.data.mocap_pos[self._skeleton] = position + np.asarray(points) @ rotation.reshape(3, 3).T
 
     def reset_object(self):
         """Put the object back where it is placed, at rest."""
@@ -237,7 +270,8 @@ class World:
         """Where a hand stands: the plan hand beside the others, or parked."""
         if hand != "plan":
             return self.mount
-        return (self.mount[0] + (PLAN_OFFSET if self._plan_shown else PARKED), self.mount[1])
+        shown = self._plan_shown or self._skeleton_shown
+        return (self.mount[0] + (PLAN_OFFSET if shown else PARKED), self.mount[1])
 
     def object_position(self):
         """The object's centre in world metres, or None without one."""
@@ -293,6 +327,7 @@ def _build(robot, config, obj):
     _add_ghost(world, DEMO, obj, DEMO_RGBA)
     _add_ghost(world, PLAN_OBJECT, obj, obj["rgba"])
     _add_ghost(world, PLAN_GOAL, obj, DEMO_RGBA)
+    _add_skeleton(world)
     return world, bases
 
 
@@ -347,6 +382,23 @@ def _add_ghost(world, name, obj, rgba):
     body.add_geom(name=name, type=mujoco.mjtGeom.mjGEOM_BOX,
                   size=np.array(obj["size_mm"]) / 2000.0, rgba=rgba,
                   group=GROUPS["object"], contype=0, conaffinity=0)
+
+
+def _add_skeleton(world):
+    """A ball per hand landmark (kinematic, touching nothing, parked) and a
+    bone - a spatial tendon, drawn as a capsule - between the balls BONES
+    joins."""
+    for i in range(21):
+        body = world.worldbody.add_body(name=f"{SKELETON}/{i}", mocap=True, pos=PARKED)
+        body.add_geom(name=f"{SKELETON}/{i}", type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                      size=[SKELETON_JOINT_M, 0, 0], rgba=SKELETON_RGBA,
+                      group=GROUPS["object"], contype=0, conaffinity=0)
+        body.add_site(name=f"{SKELETON}/{i}")
+    for k, (a, b) in enumerate(BONES):
+        bone = world.add_tendon(name=f"{SKELETON}/bone{k}", width=SKELETON_BONE_M,
+                                rgba=SKELETON_RGBA)
+        bone.wrap_site(f"{SKELETON}/{a}")
+        bone.wrap_site(f"{SKELETON}/{b}")
 
 
 def _children(body):

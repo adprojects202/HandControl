@@ -6,6 +6,7 @@ shape of a person's hand, as it moves.
     features = human_features(world, side)      # MediaPipe hands -> shapes
     chain = robot_chain()                       # where the robot's matching points are
     features = shape(points)                    # either hand's points -> shape
+    policy_input = observation(...)             # what the policy sees (gpu_hand, hand_follow)
 
 A hand's shape, the same for a person's hand and the robot's though they
 differ in size (the robot's palm is ~1.7 times a person's) and fingers (it
@@ -58,10 +59,14 @@ import torch
 
 from ..paths import ROOT
 from ..sim.task import hand_spec
+from . import env as tracker
 
 LIBRARY = ROOT / "data" / "learning" / "hand_library.npz"
 RATE = 20
 FEATURES = 51
+SEGMENTS = 12
+FUTURE_STEPS = (1, 3, 6)         # the shapes ahead the policy sees, in steps
+ACTION_SCALE = tracker.ACTION_SCALE   # rad a servo target moves per step at most
 CHAINS = {"thumb": [1, 2, 3, 4], "index": [5, 6, 7, 8], "middle": [9, 10, 11, 12],
           "ring": [13, 14, 15, 16]}
 WRIST, MIDDLE_KNUCKLE, INDEX_KNUCKLE, PINKY_KNUCKLE = 0, 9, 5, 17
@@ -95,10 +100,38 @@ def shape(points):
     return lib.concatenate(parts, axis=-1) if lib is np else torch.cat(parts, dim=-1)
 
 
+def observation(joints, previous, targets, now, goals):
+    """The policy's input (n, 3 J + FEATURES (1 + len(FUTURE_STEPS))): what
+    the robot reads, its shape now, and the shapes ahead (n, steps, FEATURES)
+    less the shape now - the same wherever the hand runs."""
+    return torch.cat([joints, previous, targets, now,
+                      (goals - now[:, None]).reshape(len(now), -1)], dim=1)
+
+
+def errors(robot, goal):
+    """(segment angle rad, tip error, pinch error - palm lengths), each (n,),
+    between shapes (n, FEATURES)."""
+    directions = SEGMENTS * 3
+    dot = (robot[:, :directions].reshape(-1, SEGMENTS, 3)
+           * goal[:, :directions].reshape(-1, SEGMENTS, 3)).sum(dim=-1)
+    angle = torch.arccos(torch.clamp(dot, -1.0, 1.0)).mean(dim=1)
+    tips = directions + 12
+    tip = torch.linalg.norm((robot[:, directions:tips] - goal[:, directions:tips]).reshape(-1, 4, 3),
+                            dim=-1).mean(dim=1)
+    pinch = (robot[:, tips:FEATURES] - goal[:, tips:FEATURES]).abs().mean(dim=1)
+    return angle, tip, pinch
+
+
 def human_points(world, side):
     """MediaPipe world landmarks (..., 21, 3) of a `side` hand -> the 16
     points (..., 16, 3) in its palm frame, palm lengths; a right hand
     mirrored onto a left."""
+    return in_palm(world, side)[..., np.concatenate([CHAINS[name] for name in CHAINS]), :]
+
+
+def in_palm(world, side):
+    """MediaPipe world landmarks (..., 21, 3) of a `side` hand -> all 21 in
+    its palm frame, palm lengths; a right hand mirrored onto a left."""
     x = world[..., MIDDLE_KNUCKLE, :] - world[..., WRIST, :]
     length = np.linalg.norm(x, axis=-1, keepdims=True)
     x = x / length
@@ -108,9 +141,8 @@ def human_points(world, side):
     z = z - (z * x).sum(axis=-1, keepdims=True) * x
     z = z / np.linalg.norm(z, axis=-1, keepdims=True)
     axes = np.stack([x, np.cross(z, x), z], axis=-1)          # columns
-    chosen = np.concatenate([CHAINS[name] for name in CHAINS])
     local = np.einsum("...ji,...pj->...pi", axes,
-                      world[..., chosen, :] - world[..., WRIST:WRIST + 1, :]) / length[..., None]
+                      world - world[..., WRIST:WRIST + 1, :]) / length[..., None]
     if side != "Left":
         local[..., 1] *= -1.0
     return local
@@ -156,6 +188,25 @@ def robot_chain(model=None):
     reach = (palm - middle) @ x
     wrist = middle + x * reach.min()
     return chain, (wrist, np.column_stack([x, y, z]), float(np.linalg.norm(middle - wrist)))
+
+
+def mount_palm():
+    """The robot's palm frame (wrist (3,) m, axes (3, 3) columns, palm
+    length m) in its mount's frame - where the World and sim files put
+    things."""
+    spec, _, (position, quat), _ = hand_spec()
+    _, (wrist, axes, length) = robot_chain(spec.compile())
+    rotation = np.zeros(9)
+    mujoco.mju_quat2Mat(rotation, np.asarray(quat, float))
+    rotation = rotation.reshape(3, 3)
+    return (wrist - position) @ rotation, rotation.T @ axes, length
+
+
+def on_robot(points, palm):
+    """Points (..., 3) in a palm frame, palm lengths -> where they are on
+    the robot's palm `palm` (wrist, axes, length): m, in its frame."""
+    wrist, axes, length = palm
+    return wrist + (points * length) @ axes.T
 
 
 def robot_points(model, data, chain, palm):

@@ -258,8 +258,16 @@ Steps on a recording, in order (Recordings section):
    degrees. A marker's own accuracy at 0.3 m with this camera: 1-2 mm, 1-2
    degrees tilted, 4-5 degrees square-on. The live preview draws markers
    with their ids. Print them with `scripts/aruco_markers.py`.
-   *Send to sim* (`src/processing/transfer.py` -> `sim.npz`): that motion in
-   the robot hand's frame - the person's palm laid on the robot's, fingers to
+   *Send to sim* (`src/processing/transfer.py`) sends the person's **hand**
+   (`hand_sim.npz`; needs only step 3, so a recording of gestures with no
+   object works): the hand holding the object, else the one seen most, its
+   21 landmarks laid on the robot's palm - wrist on wrist, palm lengths
+   scaled to the robot's, a right hand mirrored onto the robot's left - and
+   its shape (*Learning: hand motion*). With *show in sim* it stands on the
+   plan stage beside the hand as an amber skeleton (balls joined by bones:
+   spatial tendons between sites on mocap bodies) following the player's
+   frame. Once fitted in 3D it also sends the **object** (`sim.npz`): that
+   motion in the robot hand's frame - the person's palm laid on the robot's, fingers to
    fingers, palm-out to palm-out - placed as the World section's *training*
    setting (`object.training`) says: *fixed pose*, centred where the World
    section places the calibration object; or *from the hand*, where the
@@ -278,7 +286,16 @@ Steps on a recording, in order (Recordings section):
    object is planned from its new place; the plan stage beside the hand is
    cleared while they work.
 
-6. **Plan in sim** (`src/processing/plan.py` -> `plan.npz`): can this hand,
+6. **Follow the hand** (`src/processing/follow.py` -> `follow.npz`): the
+   trained hand-motion policy (*Learning: hand motion*; the run
+   `learning.hand_run` names, else the newest) takes the shape of the
+   person's hand through the recording, in the hand sim on this Mac's CPU -
+   no object, no retraining; the robot hand starts at rest. The summary and
+   plot give how far each finger segment's direction and the fingertips are
+   off the person's, next to staying at rest. With *show in sim* the plan
+   stage's hand replays it, the skeleton on it.
+
+7. **Plan in sim** (`src/processing/plan.py` -> `plan.npz`): can this hand,
    mounted as the World section has it, do what the recording shows? No
    training. The task sim (`src/sim/task.py`) is the robot with a position
    servo on every joint - XL330-M288 from its spec sheet: 0.52 N m at
@@ -309,12 +326,12 @@ Steps on a recording, in order (Recordings section):
    24 s. A plan made for one mount says so when the World section's
    orientation changes.
 
-7. **Run the trained policy** (`src/processing/track.py` -> `track.npz`):
+8. **Run the trained policy** (`src/processing/track.py` -> `track.npz`):
    the trained general tracker (see *Learning* below) follows the motion -
-   no retraining, only a grip where the motion starts (step 6's when
+   no retraining, only a grip where the motion starts (step 7's when
    current, else searched). This is the one-shot test: a recording is never
-   trained on. Shown like step 6; when both exist, *plan stage shows* picks
-   which one the stage replays.
+   trained on. Shown like step 7; when more than one exists, *plan stage
+   shows* picks which one the stage replays.
 
    Masks are used as the object's own region: SAM leaves stray specks far
    from the object (on the first SAM 3 recording, in 345 of 411 frames),
@@ -364,7 +381,7 @@ new demonstration needs no retraining, only its motion (`src/learning`).
    on CUDA. Same observations, actions and rewards as the Mac's environment
    (measured: identical at reset; within 0.2 mm and 0.3 degrees after 200
    contact-rich steps), so the weights come back into Runs and run on the
-   Mac's CPU (Test, Recordings step 7). Commit and push first - the panel
+   Mac's CPU (Test, Recordings step 8). Commit and push first - the panel
    says when not. The policy sees
    what the real hand will have - joint angles now and a step ago, servo
    targets, the object's pose as a camera would give it (noisy) - and the
@@ -532,7 +549,7 @@ sections.
 - **Runs** - every run, newest first: its rounds, its test (each recording -
   never trained on - and the median of the motions it trained on, next to
   the planner and to holding still; a drop in red), its curve; the radio
-  button picks the run Recordings step 7 uses (`learning.run`); *Test* for a
+  button picks the run Recordings step 8 uses (`learning.run`); *Test* for a
   run not yet tested.
 
 Building and training run as processes of their own
@@ -608,7 +625,7 @@ settings.set("hardware.port", "/dev/cu.usbserial-XYZ"); settings.save()
 | `robot.urdf` | the robot; sliders, world and motor map all follow it |
 | `world.*` | timestep, mount position and orientation, each hand's colour and emission (encoder, command, plan) |
 | `object.*` | calibration box: shown, fixed/floating, size, weight, friction, position, colour; *training*: where Send to sim puts a recording's object (fixed pose / from the hand) |
-| `learning.*` | what is learnt (object tracking or hand motion); the tracker's training: method, sim copies and rounds (PPO), rounds (teacher); the run step 7 uses and the hand-motion run (`""` = newest); the ClearML queue and GPU sim copies |
+| `learning.*` | what is learnt (object tracking or hand motion); the tracker's training: method, sim copies and rounds (PPO), rounds (teacher); the run step 8 uses and the hand-motion run (`""` = newest); the ClearML queue and GPU sim copies |
 | `control.max_speed` | command slew limit, rad/s |
 | `hardware.port` | `""` none, `"mock"` fake bus that echoes commands, or the U2D2 port |
 | `hardware.*` | baud, write/read rates, current limit, velocity profile, PID |

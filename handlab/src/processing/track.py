@@ -10,7 +10,7 @@ plan.npz's when it is current and planned for this mount, else the planner
 searches one (about 10 s). From the grip closed on the held object and let
 go, the policy follows the motion, nominal physics, no sensor noise.
 
-    track.npz   as plan.npz (processing/plan.py), so step 6's summary and the
+    track.npz   as plan.npz (processing/plan.py), so step 7's summary and the
                 plan stage read it alike: time (T,) s since the object was
                 let go (hold 0), qpos, position, quat, goal_position,
                 goal_quat, position_error, turn_error, still_position_error,
@@ -61,7 +61,7 @@ def track(episode, progress=lambda done, total, text="": None):
     result = follow(run, library, [0], checkpoint)[0]
     rows = len(result["joints"])
     # Had the object stayed put: the turn to each goal, least over the
-    # object's symmetries, as step 6 measures it.
+    # object's symmetries, as step 7 measures it.
     symmetries = np.array(box_symmetries(task.model.geom(OBJECT).size * 2000))
     relative = _quat_matrices(quats[0]).T @ _quat_matrices(result["goal_quat"])
     traces = np.einsum("nij,sji->ns", relative, symmetries).max(axis=1)

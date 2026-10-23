@@ -8,7 +8,7 @@ GPU, PPO (rsl_rl) on the GPU too.
 
 Same observations, actions, rewards, episodes, randomization and noise as
 TrackEnv - so a policy trained here runs there unchanged: Test, Runs and
-Recordings step 7 on the Mac. Only PPO: the planner (the planner_teacher
+Recordings step 8 on the Mac. Only PPO: the planner (the planner_teacher
 method) still runs on a CPU.
 
 The bundle (remote.export_bundle, made on the Mac): library.npz, the task

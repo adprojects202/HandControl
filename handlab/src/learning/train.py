@@ -169,9 +169,9 @@ def learned(folder):
 
 
 def chosen_run(learn="object tracking"):
-    """The run the app uses for `learn` - object tracking: Recordings step 7
-    - as its setting names it (LEARN), or the newest with a checkpoint. None
-    without one."""
+    """The run the app uses for `learn` - object tracking: Recordings step
+    8; hand motion: step 6 - as its setting names it (LEARN), or the newest
+    with a checkpoint. None without one."""
     named = settings.get(LEARN[learn])
     trained = [f for f in runs(learn) if any(f.glob("model_*.pt"))]
     for folder in trained:

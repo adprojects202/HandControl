@@ -1,9 +1,25 @@
-"""Transfer to sim: the recorded object's motion in the robot hand's frame
--> sim.npz. The world shows it as a ghost box that follows the Recordings
-player (World.set_demo).
+"""Transfer to sim: the person's hand and the recorded object's motion in
+the robot hand's frame -> hand_sim.npz and sim.npz. The world shows them -
+the hand as a skeleton on the plan stage (World.set_skeleton), the object as
+a ghost box (World.set_demo) - following the Recordings player.
 
-    transfer(episode, progress)
+    send_to_sim(episode, progress)      # Send to sim: both, as far as they can be
+    transfer_hand(episode, progress)    # the hand -> hand_sim.npz
+    transfer(episode, progress)         # the object -> sim.npz
 
+THE HAND needs only the hands step: the hand holding the object (when the
+3D step found one), else the one seen most, its 21 landmarks in its palm's
+frame and in palm lengths (learning/handmotion.py) laid on the robot's palm
+- wrist on wrist, knuckles towards knuckles, palm lengths scaled to the
+robot's - a right hand mirrored onto the robot's left. Its shape there is
+what the hand-motion policy follows (step 6).
+
+    hand_sim.npz   skeleton (N, 21, 3) m: the landmarks in the robot hand's
+                   mount frame (NaN where the hand was not seen); features
+                   (N, handmotion.FEATURES): its shape; present (N,); side;
+                   time (N,) s; made
+
+THE OBJECT needs the 3D step.
 Needs the 3D step (pose3d.npz). The person's palm frame (x up the fingers,
 z out of the palm) is laid on the robot hand's mount frame (World: x out of
 the palm, y across it, z along the fingers): fingers to fingers, palm-out to
@@ -43,8 +59,9 @@ from scipy.spatial.transform import Rotation
 import mujoco
 
 from .. import robot as robot_module, settings
+from ..learning import handmotion
 from ..vision.tracker import SIDES
-from .files import SIM, stale
+from .files import HAND_SIM, SIM, stale
 from .pose3d import load
 
 ROBOT_HAND = "Left"
@@ -102,6 +119,51 @@ def transfer(episode, progress=lambda done, total, text="": None):
     return {"frames": int(valid.sum()), "hand": SIDES[slot], "placement": placement,
             **({"scale": round(float(scale), 3)} if np.isfinite(scale) else {}),
             "mirrored_needed": SIDES[slot] != ROBOT_HAND}
+
+
+def send_to_sim(episode, progress=lambda done, total, text="": None):
+    """Step 5's Send to sim: the hand, and the object when the 3D step has
+    fitted it. Returns their summaries."""
+    out = {"hand": transfer_hand(episode, progress)}
+    if load(episode):
+        out["object"] = transfer(episode, progress)
+    return out
+
+
+def transfer_hand(episode, progress=lambda done, total, text="": None):
+    """Save the person's hand for the sim (hand_sim.npz); returns a summary."""
+    hands = episode.clean_hands or episode.hands
+    if not hands:
+        raise ValueError("the recording has no hands")
+    progress(0, 1, "laying the hand on the robot's palm")
+    slot = _hand_slot(episode, hands)
+    side = SIDES[slot]
+    world = hands["world"][:, slot].astype(float)
+    present = hands["present"][:, slot] & np.isfinite(world).all(axis=(1, 2))
+    if not present.any():
+        raise ValueError(f"the {side.lower()} hand is never seen")
+    skeleton = np.full(world.shape, np.nan)
+    features = np.full((len(world), handmotion.FEATURES), np.nan)
+    skeleton[present] = handmotion.on_robot(handmotion.in_palm(world[present], side),
+                                            handmotion.mount_palm())
+    features[present] = handmotion.human_features(world[present], side)
+    episode.save_arrays(HAND_SIM, {
+        "skeleton": skeleton.astype(np.float32), "features": features.astype(np.float32),
+        "present": present, "side": np.array(side), "time": episode.times.astype(np.float32),
+        "made": np.array(datetime.now().isoformat(timespec="seconds"))})
+    progress(1, 1, "done")
+    return {"frames": int(present.sum()), "hand": side}
+
+
+def _hand_slot(episode, hands):
+    """The hand holding the object, when the 3D step found one; else the one
+    seen in most frames."""
+    pose = load(episode)
+    if pose and pose["boxed"].any():
+        slot = int(pose["hand"][int(np.flatnonzero(pose["boxed"])[0])])
+        if slot >= 0:
+            return slot
+    return int(np.argmax(hands["present"].sum(axis=0)))
 
 
 def current_sim(episode, progress=lambda done, total, text="": None):
