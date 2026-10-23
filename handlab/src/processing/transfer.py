@@ -28,7 +28,8 @@ from scipy.spatial.transform import Rotation
 
 from .. import settings
 from ..vision.tracker import SIDES
-from .files import POSE3D, SIM
+from .files import SIM
+from .pose3d import load
 
 ROBOT_HAND = "Left"
 # Rows: the mount's x (out of the palm), y (across it), z (along the fingers)
@@ -46,10 +47,10 @@ def to_mount(in_palm_position, in_palm_rotation):
 
 def transfer(episode, progress=lambda done, total, text="": None):
     """Save the recorded object's motion for the sim; returns a summary."""
-    pose = episode.arrays(POSE3D)
+    pose = load(episode)
     if not pose:
         raise ValueError("fit 3D first")
-    track = 0
+    track = int(np.flatnonzero(pose["boxed"])[0])         # the calibration object
     slot = int(pose["hand"][track])
     if slot < 0:
         raise ValueError(f"no hand holds {pose['names'][track]}")

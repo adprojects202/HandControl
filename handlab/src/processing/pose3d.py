@@ -5,7 +5,10 @@ and the object relative to the palm holding it -> pose3d.npz.
 
 Needs the camera's calibration (Episode.calibration), the hands step and the
 object step. The object is taken to be the World section's calibration
-object: a box of `object.size_mm`.
+object: a box of `object.size_mm` - fitted only to the objects that are it
+(`box_tracks`): those the task context says the person moves (role
+"moved"), not supports like the table or anything else in view; with no
+"moved" object (an older context), those a hand holds.
 
 Hands. MediaPipe gives each hand's shape in metres (world landmarks) and
 where its points are in the image; with the camera's numbers the two give
@@ -153,6 +156,7 @@ def fit_3d(episode, progress=lambda done, total, text="": None):
     camera = (calibration.matrix(), np.array(calibration.distortion))
     box_mm = np.array(settings.get("object.size_mm"), float)
     count, tracks = episode.frames, len(motion["names"])
+    boxed = box_tracks(episode, motion)
 
     out = _hands(hands, camera, width, height)
     for slot in range(2):
@@ -176,6 +180,10 @@ def fit_3d(episode, progress=lambda done, total, text="": None):
                outline_error_mm=np.full(count, np.nan),
                outline_error_deg=np.full(count, np.nan))
     for track in range(tracks):
+        if track not in boxed:                      # not the calibration object
+            progress((track + 1) * count, tracks * count,
+                     f"{motion['names'][track]}: not the object")
+            continue
         pose, last = None, None
         for index in range(count):
             if motion["visible"][track, index]:
@@ -188,7 +196,7 @@ def fit_3d(episode, progress=lambda done, total, text="": None):
                     out["outline_rotation"][track, index] = rotation
                     out["object_fit"][track, index] = overlap
                     out["object_source"][track, index] = 1
-            if track == 0 and out["marker_id"][index] >= 0:    # a marker: the object's pose
+            if track == boxed[0] and out["marker_id"][index] >= 0:  # a marker: its pose
                 rotation, position = (out["marker_rotation"][index],
                                       out["marker_position"][index])
                 out["object_source"][track, index] = 2
@@ -210,6 +218,7 @@ def fit_3d(episode, progress=lambda done, total, text="": None):
         _smooth(out["object_position"][track], out["object_rotation"][track])
         _in_palm(out, track, int(motion["hand"][track]), motion, box_mm / 1000, symmetries)
     out.update(box_mm=box_mm, hand=motion["hand"], names=motion["names"],
+               boxed=np.isin(np.arange(tracks), boxed),
                made=np.array(datetime.now().isoformat(timespec="seconds")))
     episode.save_arrays(POSE3D, {k: np.asarray(v, np.float32) if isinstance(v, np.ndarray)
                                  and v.dtype == np.float64 else v for k, v in out.items()})
@@ -217,7 +226,8 @@ def fit_3d(episode, progress=lambda done, total, text="": None):
     compared = np.isfinite(out["outline_error_mm"])
     return {"palm_distance_m": float(np.nanmedian(out["palm_position"][..., 2][seen]))
             if seen.any() else None,
-            "object_fit": [float(np.nanmedian(f)) for f in out["object_fit"]],
+            "object_fit": [float(np.nanmedian(f)) if track in boxed else None
+                           for track, f in enumerate(out["object_fit"])],
             "hand_scale": [float(s) for s in out["hand_scale"]],
             "still_hand": [bool(s) for s in out["still_hand"]],
             "marker_frames": int((out["marker_id"] >= 0).sum()),
@@ -227,17 +237,31 @@ def fit_3d(episode, progress=lambda done, total, text="": None):
             if compared.any() else None}
 
 
+def box_tracks(episode, motion):
+    """The tracks that are the calibration object: those the task context
+    says the person moves (role "moved"); with none, those a hand holds;
+    with none of those either, the first."""
+    roles = (episode.masks or {}).get("roles")
+    if roles is not None:
+        moved = [track for track, role in enumerate(roles) if str(role) == "moved"]
+        if moved:
+            return moved
+    held = [track for track in range(len(motion["names"])) if motion["hand"][track] >= 0]
+    return held or [0]
+
+
 def load(episode):
     """An episode's pose3d.npz ({} before Fit 3D), with the fields an older
     file lacks filled in as they would have been: files made before ArUco
     markers were looked for have no markers, and every posed frame came from
-    the outline fit."""
+    the outline fit; before `box_tracks`, every object was fitted."""
     pose = dict(episode.arrays(POSE3D))
     if not pose:
         return pose
     tracks, count = pose["object_position"].shape[:2]
     posed = np.isfinite(pose["object_position"][..., 0])
-    defaults = {"object_source": lambda: posed.astype(np.uint8),
+    defaults = {"boxed": lambda: np.ones(tracks, bool),
+                "object_source": lambda: posed.astype(np.uint8),
                 "marker_id": lambda: np.full(count, -1, np.int32),
                 "marker_error_px": lambda: np.full(count, np.nan),
                 "outline_error_mm": lambda: np.full(count, np.nan),

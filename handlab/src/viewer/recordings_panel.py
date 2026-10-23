@@ -525,6 +525,9 @@ class RecordingsSection:
             return
         size = " x ".join(f"{v:.0f}" for v in pose["box_mm"])
         for track, name in enumerate(pose["names"]):
+            if not pose["boxed"][track]:
+                imgui.TextDisabled(f"{name}: not fitted - not the object being moved")
+                continue
             fit = np.nanmedian(pose["object_fit"][track])
             scale = pose["hand_scale"][track]
             palm = "one still palm" if pose["still_hand"][track] else "the palm each frame"
@@ -547,6 +550,8 @@ class RecordingsSection:
             return
         implot.SetupAxes("s", "deg / mm")
         for track, name in enumerate(pose["names"]):
+            if not pose["boxed"][track]:
+                continue
             implot.PlotLine(f"{name} - turn in palm (deg)##{track}", times,
                             [float(v) for v in pose["in_palm_turn"][track]])
             implot.PlotLine(f"{name} - out of palm (mm)##{track}", times,

@@ -1199,6 +1199,18 @@ def fit_3d_takes_the_marker_pose_and_measures_the_outline_fit():
 
 
 @check
+def fit_3d_boxes_only_the_object_being_moved():
+    from types import SimpleNamespace
+    from src.processing.pose3d import box_tracks
+    motion = {"names": np.array(["cube", "table", "cup"]), "hand": np.array([1, 1, -1])}
+    told = SimpleNamespace(masks={"roles": np.array(["moved", "support", "other"])})
+    assert box_tracks(told, motion) == [0], "the table is held-looking but a support"
+    older = SimpleNamespace(masks={})                    # a context without roles
+    assert box_tracks(older, motion) == [0, 1], "then what a hand holds"
+    assert box_tracks(older, {"names": motion["names"], "hand": np.array([-1, -1, -1])}) == [0]
+
+
+@check
 def pose3d_files_from_before_markers_still_open():
     from src.processing.pose3d import load
     from src.vision.calibration import Calibration
@@ -1217,6 +1229,7 @@ def pose3d_files_from_before_markers_still_open():
                  box_mm=np.array([55.0] * 3), names=np.array(["cube"]))
         pose = load(Episode(folder))
         assert pose["object_source"][0].tolist() == [1, 0, 1]
+        assert pose["boxed"].tolist() == [True], "older files: every object was fitted"
         assert (pose["marker_id"] == -1).all()
         camera = Calibration(160, 120, 100.0, 100.0, 80.0, 60.0, (0.0,) * 5, 0.1, 8, "t")
         assert len(_pose_lines(pose, 0, camera)) == 12        # the box's edges
