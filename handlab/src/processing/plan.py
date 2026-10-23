@@ -38,17 +38,17 @@ from scipy.spatial.transform import Rotation
 from .. import settings
 from ..sim.planner import DROP_M, HOLD, Goal, Planner
 from ..sim.task import Task
-from .files import PLAN, SIM, stale
+from .files import PLAN
+from .transfer import current_sim
 
 
 
 def plan(episode, progress=lambda done, total, text="": None):
     """Grip and follow the recording's motion in the task sim; returns a summary."""
-    sim = episode.arrays(SIM)
-    if not sim:
-        raise ValueError("send to sim first")
-    if SIM in stale(episode):
-        raise ValueError(stale(episode)[SIM])
+    sim = current_sim(episode, progress)
+    if str(sim["hand"]) != "Left":
+        raise ValueError("recorded with the right hand: not yet mirrored for the robot's "
+                         "left hand")
     valid = sim["valid"]
     first = int(np.flatnonzero(valid)[0])
     position, quat = sim["position"].astype(float), sim["quat"].astype(float)

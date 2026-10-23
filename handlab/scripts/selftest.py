@@ -1374,8 +1374,9 @@ def planner_finds_a_grip_that_holds_without_the_weld():
 
 @check
 def plan_step_saves_its_file_and_out_of_date_files_are_flagged():
-    from src.processing import plan as plan_step
+    from src.processing import files, plan as plan_step, transfer as transfer_module
     from src.processing.files import PLAN, SIM, stale
+    transfer_function = transfer_module.transfer
     from src.sim import planner as planning
     original = settings._current
     saved = planning.GRASP_SAMPLES, planning.GRASP_ROUNDS, planning.SAMPLES
@@ -1391,6 +1392,8 @@ def plan_step_saves_its_file_and_out_of_date_files_are_flagged():
         np.savez(folder / "sim.npz", position=np.tile(placed, (count, 1)),
                  quat=np.tile([1.0, 0, 0, 0], (count, 1)), valid=np.ones(count, bool),
                  time=np.arange(count) / 30.0, hand=np.array("Left"),
+                 placement=np.array("fixed pose"),
+                 position_mm=np.array(settings.get("object.position_mm"), float),
                  made=np.array("2026-10-23T10:00:01"))
         episode = Episode(folder)
         assert stale(episode) == {}
@@ -1401,15 +1404,28 @@ def plan_step_saves_its_file_and_out_of_date_files_are_flagged():
         assert saved_plan["quat"].shape == (rows, 4) and saved_plan["gaps"].shape[1] == 4
         assert set(result) >= {"grip_slip_mm", "dropped_at", "position_mm", "still_turn_deg"}
         assert result["still_position_mm"] == (0.0, 0.0), "a goal that never moves"
+        # The World section moves the object: what was sent to sim is out of
+        # date, the plan with it - and Plan sends to sim afresh first.
+        settings.set("object.position_mm", [30.0, 5.0, 65.0])
+        assert stale(episode) == {SIM: files.MOVED, PLAN: files.REDO[PLAN]}
+        sent = []
+
+        def send(again):                         # Send to sim, as the World places it now
+            sent.append(again)
+            arrays = dict(np.load(folder / "sim.npz"))
+            arrays.update(position_mm=np.array([30.0, 5.0, 65.0]),
+                          made=np.array("2026-10-23T11:00:00"))
+            np.savez(folder / "sim.npz", **arrays)
+
+        transfer_module.transfer = send
+        plan_step.plan(episode)
+        episode.reload()
+        assert sent and stale(episode) == {}, "planned on what was sent afresh"
         np.savez(folder / "pose3d.npz", made=np.array("2099-01-01T00:00:00"))
         episode.reload()
-        assert set(stale(episode)) == {SIM, PLAN}
-        try:
-            plan_step.plan(episode)
-            raise AssertionError("planned from an out-of-date sim.npz")
-        except ValueError as refused:
-            assert "Send to sim again" in str(refused)
+        assert set(stale(episode)) == {SIM, PLAN}, "a new 3D fit: both out of date"
     finally:
+        transfer_module.transfer = transfer_function
         planning.GRASP_SAMPLES, planning.GRASP_ROUNDS, planning.SAMPLES = saved
         settings._current = original
 

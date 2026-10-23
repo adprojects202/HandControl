@@ -44,7 +44,7 @@ import mujoco
 
 from .. import robot as robot_module, settings
 from ..vision.tracker import SIDES
-from .files import SIM
+from .files import SIM, stale
 from .pose3d import load
 
 ROBOT_HAND = "Left"
@@ -95,12 +95,24 @@ def transfer(episode, progress=lambda done, total, text="": None):
         "valid": valid, "time": episode.times.astype(np.float32),
         "size_mm": pose["box_mm"], "anchor": anchor.astype(np.float32),
         "placement": np.array(placement), "scale": np.array(scale),
+        "position_mm": np.array(settings.get("object.position_mm"), float),
         "track": np.array(track), "hand": np.array(SIDES[slot]),
         "made": np.array(datetime.now().isoformat(timespec="seconds"))})
     progress(1, 1, "done")
     return {"frames": int(valid.sum()), "hand": SIDES[slot], "placement": placement,
             **({"scale": round(float(scale), 3)} if np.isfinite(scale) else {}),
             "mirrored_needed": SIDES[slot] != ROBOT_HAND}
+
+
+def current_sim(episode, progress=lambda done, total, text="": None):
+    """sim.npz as the 3D fit and the World section's placement have it now:
+    sent again first when missing or out of date - what Plan and Run start
+    from, so a moved object is planned afresh."""
+    if not episode.arrays(SIM) or SIM in stale(episode):
+        progress(0, 1, "sending to sim afresh")
+        transfer(episode)
+        episode.reload()
+    return episode.arrays(SIM)
 
 
 def from_hand(in_palm, scale, centre, surface):

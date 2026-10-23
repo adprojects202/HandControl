@@ -179,7 +179,7 @@ class RecordingsSection:
                    "(about 10 s)",
                    done=bool(episode.arrays(TRACK)))
         frames[TRACK] = self._sim_result(episode, TRACK, "run")
-        self._stage(frames)
+        self._stage(episode, frames)
         if self._context is not None:
             self._sent_frames(episode)
             if imgui.TreeNodeEx("task context", int(imgui.TreeNodeFlags.DefaultOpen)):
@@ -420,12 +420,12 @@ class RecordingsSection:
 
     @staticmethod
     def _blocked_plan(episode):
+        """Plan and Run send to sim afresh themselves when it is missing or
+        out of date; they need the 3D fit, and a left hand."""
+        if not episode.arrays(POSE3D):
+            return "fit 3D first"
         sim = episode.arrays(SIM)
-        if not sim:
-            return "send to sim first"
-        if SIM in stale(episode):
-            return stale(episode)[SIM]
-        if str(sim["hand"]) != "Left":
+        if sim and str(sim["hand"]) != "Left":
             return "recorded with the right hand: not yet mirrored for the robot's left hand"
         return ""
 
@@ -437,9 +437,14 @@ class RecordingsSection:
             return "no trained policy yet (Learning panel > Train)"
         return ""
 
-    def _stage(self, frames):
+    def _stage(self, episode, frames):
         """Which result the plan stage replays - step 6's or step 7's - and
-        show it, or hide the stage."""
+        show it, or hide the stage: hidden too while Plan or Run works on
+        this recording, the old result no longer the scene."""
+        if self.job.busy and self.job.label in (f"plan {episode.folder}",
+                                                f"track {episode.folder}"):
+            self.show_plan(None)
+            return
         shown = {name: frame for name, frame in frames.items() if frame is not None}
         if len(shown) == 2:
             imgui.TextDisabled("plan stage shows:")

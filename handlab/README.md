@@ -270,9 +270,13 @@ Steps on a recording, in order (Recordings section):
    On the red-cube recording the two land within a few mm of each other. With *show in sim*, a translucent cyan ghost box
    in the world (`demo`, touching nothing) follows the player's frame. The
    robot is a left hand; a right-hand demonstration is not mirrored yet.
-   A step whose input was made again after it ran says so (amber) and the
-   next step will not run on it: Send to sim after a new Fit 3D, Plan after
-   a new Send to sim.
+   A step whose input was made again after it ran says so (amber): Send to
+   sim after a new Fit 3D - or after the World section places the object
+   otherwise (its *training* setting, or the fixed position) - and Plan and
+   Run after a new Send to sim. *Plan* and *Run* start fresh: when Send to
+   sim is missing or out of date they send to sim again first, so a moved
+   object is planned from its new place; the plan stage beside the hand is
+   cleared while they work.
 
 6. **Plan in sim** (`src/processing/plan.py` -> `plan.npz`): can this hand,
    mounted as the World section has it, do what the recording shows? No

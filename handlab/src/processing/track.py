@@ -30,16 +30,14 @@ from ..learning.trajectories import RATE, let_go, motion_of
 from ..sim.planner import Planner, _quat_matrices
 from ..sim.symmetry import box_symmetries
 from ..sim.task import OBJECT, Task
-from .files import PLAN, SIM, TRACK, stale
+from .files import PLAN, TRACK, stale
+from .transfer import current_sim
 from .plan import summary
 
 
 def track(episode, progress=lambda done, total, text="": None):
     """Follow the recording's motion with the trained tracker; returns a summary."""
-    if not episode.arrays(SIM):
-        raise ValueError("send to sim first")
-    if SIM in stale(episode):
-        raise ValueError(stale(episode)[SIM])
+    current_sim(episode, progress)
     motion = motion_of(episode)
     if motion is None:
         raise ValueError("recorded with the right hand: not yet mirrored for the robot's left hand")
