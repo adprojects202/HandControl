@@ -31,8 +31,8 @@ recording's folder:
                 follows that motion in the task sim -> plan.npz; with "show
                 in sim", the plan stage beside the hand replays it at the
                 player's frame
-    7 Track with the tracker
-                the trained tracker (src/learning) follows that motion - no
+    7 Run the trained policy
+                the trained policy (src/learning) follows that motion - no
                 retraining: the one-shot test -> track.npz; shown like step 6
 
 "Sent frames" shows the frames Describe sent, numbered as the model saw
@@ -172,12 +172,13 @@ class RecordingsSection:
                    "to sim - no training; about 20 s",
                    done=bool(episode.arrays(PLAN)))
         frames = {PLAN: self._sim_result(episode, PLAN, "planned")}
-        imgui.SeparatorText("7  track with the tracker")
-        self._step(episode, "track", "Track", track_with_tracker, self._blocked_track(episode),
-                   "the trained tracker follows this motion - no retraining, the one-shot "
-                   "test; the grip is step 6's when current, else searched (about 10 s)",
+        imgui.SeparatorText("7  run the trained policy")
+        self._step(episode, "track", "Run", track_with_tracker, self._blocked_track(episode),
+                   "the trained policy (Learning > Runs) follows this motion - no retraining, "
+                   "the one-shot test; the grip is step 6's when current, else searched "
+                   "(about 10 s)",
                    done=bool(episode.arrays(TRACK)))
-        frames[TRACK] = self._sim_result(episode, TRACK, "tracked")
+        frames[TRACK] = self._sim_result(episode, TRACK, "run")
         self._stage(frames)
         if self._context is not None:
             self._sent_frames(episode)
@@ -433,7 +434,7 @@ class RecordingsSection:
         if cls._blocked_plan(episode):
             return cls._blocked_plan(episode)
         if chosen_run() is None:
-            return "no trained tracker yet (Learning panel > Train)"
+            return "no trained policy yet (Learning panel > Train)"
         return ""
 
     def _stage(self, frames):
@@ -442,7 +443,7 @@ class RecordingsSection:
         shown = {name: frame for name, frame in frames.items() if frame is not None}
         if len(shown) == 2:
             imgui.TextDisabled("plan stage shows:")
-            for name, label in ((PLAN, "plan"), (TRACK, "tracker")):
+            for name, label in ((PLAN, "plan"), (TRACK, "trained policy")):
                 imgui.SameLine()
                 if imgui.RadioButton(label, self.stage_shows == name):
                     self.stage_shows = name
@@ -462,7 +463,7 @@ class RecordingsSection:
             imgui.TextColored(AMBER, f"{verb} with the hand {result['orientation']}; "
                                      f"the World section has it {mount} now")
         if "run" in result:
-            imgui.TextDisabled(f"tracker: run {Path(str(result['run'])).name}, "
+            imgui.TextDisabled(f"trained policy: run {Path(str(result['run'])).name}, "
                                f"{result['checkpoint']}")
         numbers = plan_summary(result)
         imgui.TextDisabled(f"grip: the object slips {numbers['grip_slip_mm']:.0f} mm and "

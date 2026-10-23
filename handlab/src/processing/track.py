@@ -1,4 +1,4 @@
-"""Track with the tracker: the trained policy follows this recording's motion
+"""Run the trained policy: it follows this recording's motion
 in the task sim - no retraining, only a grip where the motion starts.
 -> track.npz
 
@@ -45,7 +45,7 @@ def track(episode, progress=lambda done, total, text="": None):
         raise ValueError("recorded with the right hand: not yet mirrored for the robot's left hand")
     run = chosen_run()
     if run is None:
-        raise ValueError("no trained tracker yet (Learning panel > Train)")
+        raise ValueError("no trained policy yet (Learning panel > Train)")
     positions, quats = motion
     orientation = settings.get("world.hand_orientation")
     progress(0, 3, "building the task sim")

@@ -289,7 +289,7 @@ class RunsSection:
                                 int(imgui.TableFlags.SizingStretchProp)
                                 | int(imgui.TableFlags.RowBg)):
             return
-        for header in ("motion", "tracker mm / deg", "planner mm / deg", "held still deg"):
+        for header in ("motion", "policy mm / deg", "planner mm / deg", "held still deg"):
             imgui.TableSetupColumn(header)
         imgui.TableHeadersRow()
         recorded = [r for r in evaluation if r["recorded"]]

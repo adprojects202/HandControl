@@ -299,7 +299,7 @@ Steps on a recording, in order (Recordings section):
    24 s. A plan made for one mount says so when the World section's
    orientation changes.
 
-7. **Track with the tracker** (`src/processing/track.py` -> `track.npz`):
+7. **Run the trained policy** (`src/processing/track.py` -> `track.npz`):
    the trained general tracker (see *Learning* below) follows the motion -
    no retraining, only a grip where the motion starts (step 6's when
    current, else searched). This is the one-shot test: a recording is never
@@ -471,7 +471,7 @@ sections.
   holds each object, and a plot of its angle in the image and in the hand -
   click the plot to move the player), **5 transfer to sim** (*Fit 3D*,
   *Send to sim*, *show in sim*), **6 plan in sim** (*Plan*; the grip, held or
-  lost, the error plot). *sent frames*: the frames Describe sent, numbered as the
+  lost, the error plot), **7 run the trained policy** (*Run*). *sent frames*: the frames Describe sent, numbered as the
   model saw them, with the same overlays - click one to show it in the
   player. *task context*: task, goal, objects (hover for the box), hands,
   phases, uncertain.
@@ -639,7 +639,7 @@ src/
   sim/task.py             the task sim: robot with M288 servos, free object, gravity
   sim/planner.py          grip search (cross-entropy) and predictive sampling
   processing/files.py     the later steps' files, and which are out of date
-  processing/track.py     Track with the tracker: the trained policy -> track.npz
+  processing/track.py     Run the trained policy: it follows a recording -> track.npz
   learning/trajectories.py  the tracker's library: grips, motions, feasibility
   learning/env.py         TrackEnv: thousands of task sims for rsl_rl's PPO
   learning/train.py       training methods, progress, evaluation, a trained policy's path
