@@ -122,6 +122,8 @@ class ProgressWriter(LogWriter):
 
     def add_scalar(self, tag, scalar_value, global_step):
         self.board.add_scalar(tag, scalar_value, global_step)
+        if tag.endswith("/time"):          # rsl_rl's copies against wall-clock seconds
+            return
         if self.row is not None and self.row["iteration"] != global_step:
             self._flush()
         if self.row is None:

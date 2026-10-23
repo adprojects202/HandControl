@@ -1,0 +1,12 @@
+# What the GPU training machine installs (the ClearML agent; see
+# src/learning/remote.py and gpu.py): MuJoCo Warp (it brings MuJoCo 3.17 and
+# NVIDIA Warp), PyTorch built for CUDA, rsl_rl. No camera, vision or hardware.
+--extra-index-url https://download.pytorch.org/whl/cu128
+mujoco-warp==3.17.0
+torch>=2.7
+rsl-rl-lib==5.5.1
+tensordict>=0.10
+numpy>=2.0
+scipy>=1.13
+tensorboard>=2.20
+clearml>=2.1

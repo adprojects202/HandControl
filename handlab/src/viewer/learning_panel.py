@@ -188,9 +188,10 @@ class TrainSection:
                 row("queue", "the ClearML queue the agent (the Windows PC with the RTX 3090) "
                              "takes work from")
                 self.form.text("learning.clearml_queue")
-                row("library", "mine - upload this Mac's library\nbuild - upload the "
-                               "recordings and build it on the agent")
-                self.form.choice("learning.clearml_library")
+                low, high = settings.limits("learning.gpu_envs")
+                row("GPU sim copies", "task sims the GPU steps together (MuJoCo Warp)\n"
+                                      f"{low} - {high}")
+                self.form.field("learning.gpu_envs")
                 imgui.EndTable()
             imgui.TreePop()
         self.form.draw_message()
@@ -213,10 +214,10 @@ class TrainSection:
                 self.poll.task.start("clearml")
                 self.poll.refresh()
         imgui.EndDisabled()
-        imgui.SetItemTooltip("the same training as a ClearML pipeline on the agent; the run "
-                             "comes back into Runs. Needs this code committed and pushed: "
-                             "the agent clones it from GitHub. The physics still runs on "
-                             "the agent's CPU")
+        imgui.SetItemTooltip("PPO on the agent's GPU (MuJoCo Warp), as a ClearML pipeline: "
+                             "this Mac's library and task sim go up, the run comes back into "
+                             "Runs. Needs this code committed and pushed: the agent clones it "
+                             "from GitHub")
         if self._blocked:
             imgui.TextColored(RED, f"cannot train on ClearML: {self._blocked}")
         status = self.poll.get()

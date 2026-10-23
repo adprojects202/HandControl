@@ -343,20 +343,19 @@ new demonstration needs no retraining, only its motion (`src/learning`).
 
    Either way the policy runs at 20 steps a second.
 
-   **On ClearML** (`src/learning/remote.py`, `scripts/clearml_train.py`,
-   the Learning panel's *Train on ClearML*): the same training as a ClearML
-   pipeline on the agent - the Windows PC with the RTX 3090, queue
-   `learning.clearml_queue`, project HandRL. Data goes up as a ClearML
-   dataset (this Mac's library, or the recordings to build it there:
-   `learning.clearml_library`); a *train* step - and a *library* step
-   first, when building there - runs `scripts/clearml_step.py` from the
-   GitHub repository at this commit, with only `requirements-train.txt`
-   (MuJoCo, PyTorch, rsl_rl); the run comes back into
-   `data/learning/runs/` like one trained here. The controller runs on the
-   Mac (one agent runs the steps). The code must be committed and pushed
-   first - the panel says when it is not. The agent's GPU trains the
-   network; the physics, nearly all the time, still runs on its CPU, so
-   the real speed-up needs the simulation on the GPU (MJX / MuJoCo Warp). The policy sees
+   **On the GPU via ClearML** (`src/learning/gpu.py`, `remote.py`,
+   `scripts/clearml_train.py`, the Learning panel's *Train on ClearML*): the
+   job goes to the ClearML agent (the Windows PC with the RTX 3090, queue
+   `learning.clearml_queue`, project HandRL) as a pipeline. The Mac uploads a
+   bundle - its library, the task sim as MJCF, the hand mount - and the agent
+   runs `scripts/clearml_gpu_step.py` from GitHub at this commit with
+   `requirements-gpu.txt`: PPO over `learning.gpu_envs` task sims stepped
+   together on the GPU by MuJoCo Warp, observations and rewards in PyTorch
+   on CUDA. Same observations, actions and rewards as the Mac's environment
+   (measured: identical at reset; within 0.2 mm and 0.3 degrees after 200
+   contact-rich steps), so the weights come back into Runs and run on the
+   Mac's CPU (Test, Recordings step 7). Commit and push first - the panel
+   says when not. The policy sees
    what the real hand will have - joint angles now and a step ago, servo
    targets, the object's pose as a camera would give it (noisy) - and the
    goal 0.05, 0.25, 0.5 and 1 s ahead as an offset and a turn from the
@@ -588,8 +587,8 @@ All take no arguments and read `settings.json`.
 | `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays, the plan stage, the task sim's weld and servos, a grip that holds, the plan step, out-of-date files, generated motions, the tracker's environment |
 | `scripts/render.py` | `renders/world.png` - the world without a window |
 | `scripts/build_library.py` | the tracker's trajectory library from the recordings (about 30 min; also the Learning panel's *Build library*) |
-| `scripts/clearml_train.py` | trains on the ClearML agent as a pipeline and fetches the run (also *Train on ClearML*) |
-| `scripts/clearml_step.py` | one step of that pipeline - run by the agent, not by hand |
+| `scripts/clearml_train.py` | trains on the ClearML agent's GPU as a pipeline and fetches the run (also *Train on ClearML*) |
+| `scripts/clearml_gpu_step.py` | the GPU training step - run by the agent, not by hand |
 | `scripts/train_tracker.py` | trains the general tracker on this Mac by `learning.*`, then tests it on every motion (also the Learning panel's *Train*) |
 | `scripts/aruco_markers.py` | `renders/aruco_markers.png`: markers 0-5 at `vision.aruco_mm`, 300 dpi, with a 50 mm bar to check the print |
 | `scripts/hw_scan.py` | lists serial ports, pings every motor, prints joint angles. Read-only |
@@ -640,7 +639,8 @@ src/
   learning/train.py       training methods, progress, evaluation, a trained policy's path
   learning/teacher.py     the planner teaches the policy (DAgger)
   learning/background.py  library builds and training as processes, their status
-  learning/remote.py      training on the ClearML agent, as a pipeline
+  learning/remote.py      training on the ClearML agent's GPU, as a pipeline
+  learning/gpu.py         the environment on the GPU (MuJoCo Warp), PPO, test
   keys.py                 secrets (API keys, HF_TOKEN): environment, then .env
   assistant/claude.py     Anthropic Messages API
   assistant/openai_api.py OpenAI Responses API

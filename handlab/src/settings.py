@@ -211,10 +211,10 @@ DEFAULTS = {
         "iterations": 1500,     # ppo rounds; ~5 s each with 2048 copies (M4 Max)
         "teacher_rounds": 4,    # planner_teacher rounds; ~20 min each (170 motions)
         "run": "",              # the run Recordings step 7 uses; "" = the newest
-        # Training on the ClearML agent (src/learning/remote.py): its queue, and
-        # whether the library goes up from this Mac ("mine") or is built there.
+        # Training on the ClearML agent's GPU (src/learning/remote.py, gpu.py):
+        # its queue, and how many task sims the GPU steps together.
         "clearml_queue": "windows-rtx3090",
-        "clearml_library": "mine",
+        "gpu_envs": 8192,
     },
     # A vision-language model that says what task the frames show, as
     # structured data (src/assistant). API keys are NOT settings: they come
@@ -312,6 +312,7 @@ RANGES = {
     "learning.envs": (64, 8192),
     "learning.iterations": (1, 100_000),
     "learning.teacher_rounds": (1, 50),
+    "learning.gpu_envs": (64, 65_536),
 }
 # What a value may be, from a list. Anything else falls back to the default.
 CHOICES = {
@@ -328,7 +329,6 @@ CHOICES = {
                       "facebook/sam3"),
     "assistant.claude_effort": ("low", "medium", "high", "xhigh", "max"),
     "learning.method": ("ppo", "planner_teacher"),
-    "learning.clearml_library": ("mine", "build"),
 }
 
 

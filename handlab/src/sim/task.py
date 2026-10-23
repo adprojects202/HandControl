@@ -76,6 +76,7 @@ class Task:
     max_torque: float            # N m, per joint
     tips: tuple                  # each finger's last link, as its gap sensor's order
     link_pairs: tuple            # hand geom pairs that can meet, and their overlap at rest
+    spec: mujoco.MjSpec          # what it was compiled from (spec.to_xml(): the model as MJCF)
 
     @classmethod
     def build(cls, start):
@@ -107,7 +108,7 @@ class Task:
         mujoco.mj_forward(model, data)
         joint = model.joint(OBJECT)
         return cls(model, data, mount, int(joint.qposadr[0]), max_torque, tips,
-                   _link_pairs(model, data))
+                   _link_pairs(model, data), spec)
 
     def reset(self):
         """Back to the start: the object held where it starts, the hand at

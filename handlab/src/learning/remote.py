@@ -1,54 +1,51 @@
-"""Training on the ClearML agent - the Windows PC with the RTX 3090 - as a
-ClearML pipeline, started from this Mac:
+"""Training on the ClearML agent's GPU - the Windows PC with the RTX 3090 - as
+a ClearML pipeline, started from this Mac:
 
     folder = run(progress)          # -> data/learning/runs/<stamp>/, fetched
 
-    library  (agent)  the trajectory library, built from the recordings
-                      (only with `learning.clearml_library` "build"; with
-                      "mine", this Mac's library is uploaded instead)
-    train    (agent)  training by learning.*, then the test; the run folder
-                      comes back as an artifact
+    train_gpu  (agent)  PPO over `learning.gpu_envs` task sims on the GPU
+                        (src/learning/gpu.py: MuJoCo Warp + PyTorch CUDA),
+                        `learning.iterations` rounds, then the test; the run
+                        folder comes back as an artifact
 
-Each step is scripts/clearml_step.py from the GitHub repository at this
-very commit, so the work must be committed and pushed first (`blocked`
-says so). settings.json is not: it changes as the window is used, so this
-Mac's current one goes along with each step as a ClearML configuration
-("settings") - the agent trains with exactly these hand, object and motor
-settings. The agent installs requirements-train.txt - MuJoCo, PyTorch,
-rsl_rl, no camera stack. Data goes up as ClearML datasets: this Mac's
-library, or each recording's meta.json, frames.npz, pose3d.npz and sim.npz.
+What it trains on goes up as a ClearML dataset - the bundle
+(`export_bundle`): this Mac's library, the task sim as MJCF (task.xml, the
+model this Mac compiles, with this Mac's settings) and the hand mount. The
+step is scripts/clearml_gpu_step.py from the GitHub repository at this very
+commit, so the code must be committed and pushed first (`blocked` says so;
+settings.json need not be - it is in the bundle). The agent installs
+requirements-gpu.txt: MuJoCo Warp, CUDA PyTorch, rsl_rl.
 
-The pipeline's controller runs here, in this process: a single agent runs
-the steps, and a controller queued on it too would wait for itself. While
-it runs, the running step's progress and its last error numbers go into
-the status file, so the Learning panel shows them; the finished run is
-unpacked into data/learning/runs, where the Runs list and Recordings step 7
-find it like a run trained here.
-
-What the agent's GPU gives: the policy's network trains on it, but the
-physics - nearly all the time - runs on the agent's CPU (MuJoCo), as here.
-A real speed-up needs the simulation on the GPU (MJX / MuJoCo Warp).
+The pipeline's controller runs here, in this process (one agent runs the
+step; a controller queued on it would wait for itself). While it runs, the
+step's progress and last error numbers go into the status file, so the
+Learning panel shows them; the finished run is unpacked into
+data/learning/runs, where Runs and Recordings step 7 take it like a run
+trained here. Cancel (SIGTERM) stops the pipeline on ClearML too.
 """
 
 from __future__ import annotations
 
+import json
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
 import zipfile
+from datetime import datetime
 from pathlib import Path
+
+import mujoco
 
 from .. import settings
 from ..paths import ROOT
-from ..processing.files import POSE3D, SIM
 from . import trajectories
 from .train import RUNS
 
 PROJECT = "HandRL"
-STEP_SCRIPT = "scripts/clearml_step.py"
-REQUIREMENTS = "requirements-train.txt"
-RECORDING_FILES = ("meta.json", "frames.npz", POSE3D, SIM)
+STEP_SCRIPT = "scripts/clearml_gpu_step.py"
+REQUIREMENTS = "requirements-gpu.txt"
 POLL_S = 15
 
 
@@ -71,46 +68,54 @@ def blocked(where=ROOT):
     return ""
 
 
+def export_bundle(folder):
+    """What the GPU trains on, into `folder`: library.npz, task.xml (the
+    task sim as MJCF) and bundle.json (the hand mount, the fingertips)."""
+    from ..sim.task import Task
+
+    library = trajectories.load()
+    if not library:
+        raise RuntimeError("no library - build it first")
+    folder.mkdir(parents=True, exist_ok=True)
+    shutil.copy(trajectories.LIBRARY, folder / trajectories.LIBRARY.name)
+    task = Task.build((library["start_position"][0], library["start_quat"][0]))
+    # Attaching the robot leaves an empty default class in the export, which
+    # newer MuJoCo (3.17, the agent's) refuses; it holds nothing.
+    xml = task.spec.to_xml().replace("  <default>\n    <default/>\n  </default>\n", "", 1)
+    (folder / "task.xml").write_text(xml)
+    (folder / "bundle.json").write_text(json.dumps({
+        "mount_position": task.mount[0].tolist(), "mount_quat": task.mount[1].tolist(),
+        "tips": len(task.tips), "mujoco": mujoco.__version__,
+        "library_made": str(library["made"]),
+        "made": datetime.now().isoformat(timespec="seconds")}, indent=2))
+    return folder
+
+
 def run(progress=lambda done, total, text="": None):
     """Run the pipeline to the end; returns the fetched run folder."""
-    from clearml import PipelineController, Task      # here: only this path needs ClearML
+    from clearml import Dataset, PipelineController, Task   # here: only this needs ClearML
 
     reason = blocked()
     if reason:
         raise RuntimeError(reason)
     config = settings.section("learning")
-    queue = config["clearml_queue"]
     repo, commit = _git("remote", "get-url", "origin").strip(), _git("rev-parse", "HEAD").strip()
-    root = _git("rev-parse", "--show-toplevel").strip()
-    here = str(ROOT.relative_to(root))                 # handlab/, inside the repository
-    progress(0, 1, "uploading data")
-    build = config["clearml_library"] == "build"
-    data = _upload_recordings() if build else _upload_library()
-
-    def step_task(name):
-        return Task.create(project_name=PROJECT, task_name=f"handlab {name}", repo=repo,
-                           commit=commit, script=f"{here}/{STEP_SCRIPT}",
-                           working_directory=here,
-                           requirements_file=str(ROOT / REQUIREMENTS)).id
-
-    training = {f"handlab/{key}": config[key]
-                for key in ("method", "envs", "iterations", "teacher_rounds")}
-    here_settings = {"settings": settings.current().path.read_text()}
-    pipe = PipelineController(name="handlab tracker", project=PROJECT, add_run_number=True)
-    if build:
-        pipe.add_step("library", base_task_id=step_task("library"), execution_queue=queue,
-                      configuration_overrides=here_settings,
-                      parameter_override={"handlab/step": "library",
-                                          "handlab/recordings_dataset": data})
-        training["handlab/library_task"] = "${library.id}"
-    else:
-        training["handlab/library_dataset"] = data
-    pipe.add_step("train", base_task_id=step_task("train"), execution_queue=queue,
-                  parents=["library"] if build else None,
-                  configuration_overrides=here_settings,
-                  parameter_override={"handlab/step": "train", **training})
-    finished = threading.Event()
-    failure = []
+    here = str(ROOT.relative_to(_git("rev-parse", "--show-toplevel").strip()))
+    progress(0, 100, "uploading the bundle")
+    with tempfile.TemporaryDirectory() as tmp:
+        dataset = Dataset.create(dataset_project=PROJECT, dataset_name="handlab gpu bundle")
+        dataset.add_files(str(export_bundle(Path(tmp) / "bundle")))
+        dataset.upload()
+        dataset.finalize()
+    step = Task.create(project_name=PROJECT, task_name="handlab train_gpu", repo=repo,
+                       commit=commit, script=f"{here}/{STEP_SCRIPT}", working_directory=here,
+                       requirements_file=str(ROOT / REQUIREMENTS))
+    pipe = PipelineController(name="handlab tracker gpu", project=PROJECT, add_run_number=True)
+    pipe.add_step("train_gpu", base_task_id=step.id, execution_queue=config["clearml_queue"],
+                  parameter_override={"handlab/bundle": dataset.id,
+                                      "handlab/envs": config["gpu_envs"],
+                                      "handlab/iterations": config["iterations"]})
+    finished, failure = threading.Event(), []
 
     def control():
         try:
@@ -120,51 +125,18 @@ def run(progress=lambda done, total, text="": None):
         finally:
             finished.set()
 
+    def cancel(signum, frame):
+        _stop(pipe)
+        raise SystemExit("cancelled")
+
+    signal.signal(signal.SIGTERM, cancel)
     threading.Thread(target=control, daemon=True).start()
     while not finished.wait(POLL_S):
         _mirror(pipe, progress)
     if failure or not pipe.is_successful():
         raise RuntimeError(f"the pipeline failed{': ' + str(failure[0]) if failure else ''}"
                            " - see it in ClearML (project HandRL)")
-    return _fetch(Task.get_task(task_id=pipe.get_pipeline_dag()["train"].executed))
-
-
-def _upload_library():
-    """This Mac's library as a ClearML dataset; its id."""
-    from clearml import Dataset
-
-    if not trajectories.LIBRARY.exists():
-        raise RuntimeError("no library - build it first, or set learning.clearml_library "
-                           "to build")
-    dataset = Dataset.create(dataset_project=PROJECT, dataset_name="handlab library")
-    dataset.add_files(str(trajectories.LIBRARY))
-    dataset.upload()
-    dataset.finalize()
-    return dataset.id
-
-
-def _upload_recordings():
-    """Every recording sent to sim, the files the library needs, as a
-    ClearML dataset laid out as data/tasks; its id."""
-    from clearml import Dataset
-
-    from ..recording import episodes
-
-    dataset = Dataset.create(dataset_project=PROJECT, dataset_name="handlab recordings")
-    found = 0
-    for folder in episodes():
-        if not (folder / SIM).exists():
-            continue
-        for name in RECORDING_FILES:
-            if (folder / name).exists():
-                dataset.add_files(str(folder / name),
-                                  dataset_path=f"{folder.parent.name}/{folder.name}")
-        found += 1
-    if not found:
-        raise RuntimeError("no recording has been sent to sim")
-    dataset.upload()
-    dataset.finalize()
-    return dataset.id
+    return _fetch(Task.get_task(task_id=pipe.get_pipeline_dag()["train_gpu"].executed))
 
 
 def _mirror(pipe, progress):
@@ -186,8 +158,19 @@ def _mirror(pipe, progress):
         progress(task.get_progress() or 0, 100, f"{name} on the agent: {status}{note}")
 
 
+def _stop(pipe):
+    """Stop the pipeline and its running step on ClearML."""
+    from clearml import Task
+
+    for node in pipe.get_pipeline_dag().values():
+        job = getattr(node, "job", None)
+        if job is not None and not node.executed:
+            Task.get_task(task_id=job.task_id()).mark_stopped(force=True)
+    pipe.stop(mark_failed=False, mark_aborted=True)
+
+
 def _fetch(task):
-    """The train step's run folder, unpacked into data/learning/runs."""
+    """The step's run folder, unpacked into data/learning/runs."""
     target = unpack(Path(task.artifacts["run"].get_local_copy(extract_archive=False)))
     (target / "clearml.txt").write_text(f"trained on ClearML: task {task.id}\n"
                                         f"{task.get_output_log_web_page()}\n")
@@ -211,4 +194,3 @@ def _git(*args, cwd=ROOT):
                               check=True).stdout
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
-
