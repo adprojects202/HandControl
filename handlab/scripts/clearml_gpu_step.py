@@ -2,7 +2,9 @@
 src/learning/remote.py): PPO over the bundle's task sims on the GPU
 (src/learning/gpu.py), the test, and the run folder uploaded as the "run"
 artifact. Parameters ("handlab"): bundle (a ClearML dataset id), envs,
-iterations. Not for running by hand: the pipeline sets them.
+iterations, and the contact solver's solver_iterations and
+linesearch_iterations (gpu.py). Not for running by hand: the pipeline sets
+them - or clone the task in ClearML and change them there.
 """
 
 import json
@@ -18,7 +20,9 @@ from clearml import Dataset, Task  # noqa: E402
 
 from src.learning import gpu, train  # noqa: E402
 
-PARAMETERS = {"bundle": "", "envs": 8192, "iterations": 1500}
+PARAMETERS = {"bundle": "", "envs": 8192, "iterations": 1500,
+              "solver_iterations": gpu.SOLVER_ITERATIONS,
+              "linesearch_iterations": gpu.LINESEARCH_ITERATIONS}
 
 
 def main():
@@ -33,14 +37,17 @@ def main():
     folder = train.RUNS / datetime.now().strftime("%Y%m%d-%H%M%S")
     folder.mkdir(parents=True, exist_ok=True)
     envs, iterations = int(params["envs"]), int(params["iterations"])
+    physics = {"iterations": int(params["solver_iterations"]),
+               "linesearch": int(params["linesearch_iterations"])}
     (folder / "run.json").write_text(json.dumps({
         "method": "ppo", "device": torch.cuda.get_device_name(0), "envs": envs,
-        "iterations": iterations, "bundle": params["bundle"],
+        "iterations": iterations, "bundle": params["bundle"], "physics": physics,
         "library_made": json.loads((bundle / "bundle.json").read_text())["library_made"],
         "config": train.CONFIG}, indent=2))
     writer = {"class_name": "src.learning.train:ProgressWriter", "iterations": iterations}
-    gpu.train(bundle, folder, envs, iterations, train.CONFIG, writer)
-    results = gpu.evaluate(bundle, folder, train.latest_checkpoint(folder), train.CONFIG)
+    gpu.train(bundle, folder, envs, iterations, train.CONFIG, writer, physics=physics)
+    results = gpu.evaluate(bundle, folder, train.latest_checkpoint(folder), train.CONFIG,
+                           physics=physics)
     (folder / "evaluation.json").write_text(json.dumps(results, indent=2))
     archive = shutil.make_archive(str(folder), "zip", root_dir=folder.parent, base_dir=folder.name)
     task.upload_artifact("run", artifact_object=archive, wait_on_upload=True)

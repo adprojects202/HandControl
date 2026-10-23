@@ -28,6 +28,11 @@ model fields (friction, the object's mass and inertia, servo gain, damping
 and torque) with set_const after. Every CHECK_EVERY steps the worlds'
 overflow flags are read: a contact or constraint buffer too small stops the
 run with which one (CONTACTS, CONSTRAINTS).
+
+The contact solver gets at most SOLVER_ITERATIONS (and LINESEARCH_ITERATIONS)
+here, against MuJoCo's 100 (50): on the GPU all worlds pay for the slowest,
+and on the CPU a grip converges in 2. A world whose physics goes non-finite
+ends like a drop and starts over; the log counts them (/track/unstable).
 """
 
 from __future__ import annotations
@@ -51,13 +56,16 @@ ASSETS = Path(__file__).resolve().parents[2] / "assets" / "h4nd_left"
 CONTACTS = 96                    # per world
 CONSTRAINTS = 800                # per world
 CHECK_EVERY = 50
+SOLVER_ITERATIONS = 10
+LINESEARCH_ITERATIONS = 10
 SERIOUS = (mjw.OverflowType.NEFC | mjw.OverflowType.NARROWPHASE
            | mjw.OverflowType.BROADPHASE | mjw.OverflowType.CCD)
 
 
 class GpuTrackEnv(VecEnv):
     def __init__(self, bundle, envs=8192, motions=None, randomize=True, seed=0, cycle=False,
-                 device="cuda:0"):
+                 device="cuda:0", iterations=SOLVER_ITERATIONS,
+                 linesearch=LINESEARCH_ITERATIONS):
         """As env.TrackEnv; `bundle` is the folder remote.export_bundle made."""
         bundle = Path(bundle)
         library = load(bundle / LIBRARY.name)
@@ -76,6 +84,7 @@ class GpuTrackEnv(VecEnv):
             '<compiler angle="radian"', f'<compiler angle="radian" meshdir="{ASSETS.as_posix()}"', 1)
         mjm = mujoco.MjModel.from_xml_string(xml)
         mjm.eq_active0[:] = 0                          # episodes start let go
+        mjm.opt.iterations, mjm.opt.ls_iterations = iterations, linesearch
         self.mjm = mjm
         self.model = mjw.put_model(mjm)
         self.data = mjw.put_data(mjm, mujoco.MjData(mjm), nworld=envs, nconmax=CONTACTS,
@@ -151,7 +160,11 @@ class GpuTrackEnv(VecEnv):
         for substep in range(self.substeps):
             self.ctrl.copy_(torch.where((substep < lag)[:, None], previous, self.targets))
             self._physics_step()
-        self.gaps = self.sensordata[:, :self.tips].clone()
+        unstable = ~(torch.isfinite(self.qpos).all(dim=1) & torch.isfinite(self.qvel).all(dim=1))
+        if unstable.any():                       # ends like a drop: kept finite until reset
+            self.qpos[unstable] = self.start_qpos[self.motion_start[self.motion[unstable]]]
+            self.qvel[unstable] = 0.0
+        self.gaps = torch.nan_to_num(self.sensordata[:, :self.tips].clone())
         self.steps += 1
         self.episode_length_buf += 1
         self._count += 1
@@ -159,7 +172,7 @@ class GpuTrackEnv(VecEnv):
             self._check_overflow()
 
         position_error, turn_error = self._errors()
-        dropped = position_error > cpu.DROP_M
+        dropped = (position_error > cpu.DROP_M) | unstable
         timed_out = ~dropped & (self.steps >= self.motion_length[self.motion] - 1)
         gap = torch.clamp(torch.clamp(self.gaps, min=0.0).mean(dim=1) / cpu.GAP_SCALE, 0.0, 1.0)
         reward = (torch.exp(-position_error / cpu.POSITION_SCALE)
@@ -169,7 +182,8 @@ class GpuTrackEnv(VecEnv):
         log = {"/track/position_mm": 1000 * position_error.mean(),
                "/track/turn_deg": torch.rad2deg(turn_error).mean(),
                "/track/drops_per_step": dropped.float().mean(),
-               "/track/fingertip_gap_mm": 1000 * torch.clamp(self.gaps, min=0).mean()}
+               "/track/fingertip_gap_mm": 1000 * torch.clamp(self.gaps, min=0).mean(),
+               "/track/unstable": unstable.float().sum()}
         errors = torch.stack([position_error, turn_error], dim=1)
         done = dropped | timed_out
         if done.any():
@@ -318,18 +332,20 @@ class GpuTrackEnv(VecEnv):
                                       dtype=torch.float32, device=self.device)
 
 
-def train(bundle, folder, envs, iterations, config, writer_config, device="cuda:0"):
-    """PPO on the GPU; checkpoints and progress into `folder`."""
+def train(bundle, folder, envs, iterations, config, writer_config, device="cuda:0",
+          physics=None):
+    """PPO on the GPU; checkpoints and progress into `folder`. `physics`:
+    GpuTrackEnv's solver settings ({"iterations", "linesearch"})."""
     from rsl_rl.runners import OnPolicyRunner
 
-    env = GpuTrackEnv(bundle, envs, device=device)
+    env = GpuTrackEnv(bundle, envs, device=device, **(physics or {}))
     cfg = json.loads(json.dumps(config))
     cfg["logger"] = writer_config
     OnPolicyRunner(env, cfg, log_dir=str(folder), device=str(env.device)).learn(iterations)
     return env
 
 
-def evaluate(bundle, folder, checkpoint, config, device="cuda:0"):
+def evaluate(bundle, folder, checkpoint, config, device="cuda:0", physics=None):
     """train.evaluate on the GPU: every recorded and feasible motion once,
     nominal physics, no noise; the same rows."""
     from rsl_rl.runners import OnPolicyRunner
@@ -337,7 +353,7 @@ def evaluate(bundle, folder, checkpoint, config, device="cuda:0"):
     library = load(Path(bundle) / LIBRARY.name)
     motions = np.flatnonzero(library["motion_recorded"] | library["motion_feasible"])
     env = GpuTrackEnv(bundle, envs=len(motions), motions=motions, randomize=False, cycle=True,
-                      device=device)
+                      device=device, **(physics or {}))
     cfg = json.loads(json.dumps(config))
     cfg["logger"] = "tensorboard"
     runner = OnPolicyRunner(env, cfg, log_dir=None, device=str(env.device))

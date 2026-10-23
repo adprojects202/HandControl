@@ -134,8 +134,8 @@ def run(progress=lambda done, total, text="": None):
     while not finished.wait(POLL_S):
         _mirror(pipe, progress)
     if failure or not pipe.is_successful():
-        raise RuntimeError(f"the pipeline failed{': ' + str(failure[0]) if failure else ''}"
-                           " - see it in ClearML (project HandRL)")
+        reason = str(failure[0]) if failure else _step_error(pipe)
+        raise RuntimeError(f"the pipeline failed: {reason or 'see it in ClearML (project HandRL)'}")
     return _fetch(Task.get_task(task_id=pipe.get_pipeline_dag()["train_gpu"].executed))
 
 
@@ -156,6 +156,24 @@ def _mirror(pipe, progress):
         turn = scalars.get("/track/turn_deg", {}).get("/track/turn_deg", {}).get("last")
         note = f", {turn:.1f} deg off while training" if turn is not None else ""
         progress(task.get_progress() or 0, 100, f"{name} on the agent: {status}{note}")
+
+
+def _step_error(pipe):
+    """The failed step's last error line, from its console log."""
+    from clearml import Task
+
+    for name, node in pipe.get_pipeline_dag().items():
+        job = getattr(node, "job", None)
+        if job is None:
+            continue
+        task = Task.get_task(task_id=job.task_id())
+        if task.get_status() != "failed":
+            continue
+        lines = [line.strip() for report in task.get_reported_console_output(number_of_reports=50)
+                 for line in report.splitlines() if line.strip()]
+        errors = [line for line in lines if "Error" in line or "error" in line]
+        return f"{name} on the agent - {(errors or lines or ['no log'])[-1][:300]}"
+    return ""
 
 
 def _stop(pipe):
