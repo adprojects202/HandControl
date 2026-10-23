@@ -211,15 +211,20 @@ DEFAULTS = {
     "segment": {
         "model": "facebook/sam2.1-hiera-small",
     },
-    # Learning a general tracker (src/learning; the Learning panel): a
-    # library of motions built from the recordings, then a policy trained on
-    # it, each run in a process of its own.
+    # Learning (src/learning; the Learning panel): a library of motions
+    # built from the recordings, then a policy trained on it, each run in a
+    # process of its own. What it learns: "object tracking" - the general
+    # tracker, moving an object as a recording did; "hand motion" - the hand
+    # alone taking a person's hand shapes (learning/handmotion.py; on the
+    # ClearML agent's GPU only).
     "learning": {
+        "learn": "object tracking",
         "method": "ppo",        # how the policy learns (src/learning/train.py METHODS)
         "envs": 2048,           # copies of the task sim stepped together
         "iterations": 1500,     # ppo rounds; ~5 s each with 2048 copies (M4 Max)
         "teacher_rounds": 4,    # planner_teacher rounds; ~20 min each (170 motions)
         "run": "",              # the run Recordings step 7 uses; "" = the newest
+        "hand_run": "",         # the hand-motion run the app uses; "" = the newest
         # Training on the ClearML agent's GPU (src/learning/remote.py, gpu.py):
         # its queue, and how many task sims the GPU steps together.
         "clearml_queue": "windows-rtx3090",
@@ -340,6 +345,7 @@ CHOICES = {
                       "facebook/sam3"),
     "assistant.claude_effort": ("low", "medium", "high", "xhigh", "max"),
     "learning.method": ("ppo", "planner_teacher"),
+    "learning.learn": ("object tracking", "hand motion"),
 }
 
 

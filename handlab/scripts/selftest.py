@@ -1678,6 +1678,36 @@ def clearml_training_needs_pushed_code_and_brings_the_run_back():
         assert landed == tmp / "runs" / "20261023-150000" and (landed / "run.json").exists()
 
 
+@check
+def hand_shapes_match_between_a_person_and_the_robot():
+    import mujoco
+    from src.learning import handmotion
+    from src.sim.task import hand_spec
+    model = hand_spec()[0].compile()
+    data = mujoco.MjData(model)
+    chain, palm = handmotion.robot_chain(model)
+    mujoco.mj_kinematics(model, data)
+    points = handmotion.robot_points(model, data, chain, palm)    # at rest
+    assert abs(points[4 * 2, 0] - 1.0) < 1e-6, "the middle knuckle is a palm length up"
+    assert points[4, 1] > points[8, 1] > points[12, 1], "index, middle, ring: towards the thumb"
+    rest = handmotion.shape(points)
+    assert rest.shape == (handmotion.FEATURES,) and np.isfinite(rest).all()
+    assert np.allclose(np.linalg.norm(rest[:36].reshape(12, 3), axis=1), 1.0)
+    # A curled finger bends its segments; the robot's shape follows its joints.
+    index = model.joint("index_middle_joint").qposadr[0]
+    data.qpos[index] = 1.0
+    mujoco.mj_kinematics(model, data)
+    bent = handmotion.shape(handmotion.robot_points(model, data, chain, palm))
+    angle = np.degrees(np.arccos(np.clip(bent[3 * 4:3 * 5] @ rest[3 * 4:3 * 5], -1, 1)))
+    assert 50 < angle < 65, f"the index's middle segment turned {angle:.0f} deg for 57"
+    # A person's right hand is mirrored onto the robot's left: the same shape.
+    rng = np.random.default_rng(0)
+    world = rng.normal(size=(21, 3)) * 0.03
+    mirrored = world * [-1.0, 1.0, 1.0]
+    assert np.allclose(handmotion.human_features(world, "Left"),
+                       handmotion.human_features(mirrored, "Right"), atol=1e-9)
+
+
 def _six_back(six):
     """A rotation matrix from its first two columns (6,)."""
     x, y = six[:3], six[3:]

@@ -12,10 +12,12 @@
                      `learning.teacher_rounds` rounds, a copy per motion
 
 A new method is a function here, a name in METHODS and in
-settings.CHOICES["learning.method"]; the Learning panel lists it. A run's folder gets run.json (the method, the library it
+settings.CHOICES["learning.method"]; the Learning panel lists it. A run's
+folder gets run.json (what it learns - LEARN, the method, the library it
 learned from, the environment's settings), checkpoints (model_<n>.pt), a
 TensorBoard log, and progress.jsonl - one line of numbers per round, which
-the Learning panel plots (ProgressWriter).
+the Learning panel plots (ProgressWriter). Hand motion (gpu_hand.py) trains
+on the ClearML agent's GPU only; its runs land here beside the tracker's.
 
 `evaluate` runs a trained policy without noise or randomized physics, one
 episode per motion: the recorded motions - never trained on, so this is the
@@ -45,6 +47,9 @@ from .env import TrackEnv
 from .trajectories import load
 
 RUNS = ROOT / "data" / "learning" / "runs"
+# What a run learns (run.json "learn"; a run without one tracks objects), and
+# the setting naming the run of each that the app uses.
+LEARN = {"object tracking": "learning.run", "hand motion": "learning.hand_run"}
 PROGRESS = "progress.jsonl"
 STEPS_PER_ENV = 24
 CONFIG = {
@@ -102,7 +107,8 @@ def _describe(folder, method, library, env, iterations, extra):
     """run.json: the method, the library it learned from, the environment's
     settings."""
     (folder / "run.json").write_text(json.dumps({
-        "method": method, "library_made": str(library["made"]), "iterations": iterations,
+        "learn": "object tracking", "method": method, "library_made": str(library["made"]),
+        "iterations": iterations,
         **({"motions": int(len(env.motions))} if env is not None else {}), **extra,
         "env": {name: _plain(getattr(environment, name)) for name in SETTINGS}}, indent=2))
 
@@ -139,23 +145,35 @@ class ProgressWriter(LogWriter):
         with open(self.path, "a") as out:
             out.write(json.dumps(self.row) + "\n")
         done = self.row["iteration"] + 1
-        background.report(done=done, total=self.iterations, text=(
-            f"round {done} of {self.iterations}: {self.row.get('/track/turn_deg', np.nan):.1f} deg, "
-            f"{self.row.get('/track/position_mm', np.nan):.1f} mm off while training"))
+        row = self.row
+        if "/hand/angle_deg" in row:
+            off = f"shape {row['/hand/angle_deg']:.1f} deg, tips {row.get('/hand/tip_mm', np.nan):.1f} mm"
+        else:
+            off = (f"{row.get('/track/turn_deg', np.nan):.1f} deg, "
+                   f"{row.get('/track/position_mm', np.nan):.1f} mm")
+        background.report(done=done, total=self.iterations,
+                          text=f"round {done} of {self.iterations}: {off} off while training")
         self.row = None
 
 
-def runs():
-    """Run folders, newest first."""
-    return sorted((f for f in RUNS.glob("*") if (f / "run.json").exists()), reverse=True) \
+def runs(learn=None):
+    """Run folders, newest first; with `learn`, those learning it (LEARN)."""
+    folders = sorted((f for f in RUNS.glob("*") if (f / "run.json").exists()), reverse=True) \
         if RUNS.exists() else []
+    return [f for f in folders if learn is None or learned(f) == learn]
 
 
-def chosen_run():
-    """The run Recordings step 7 uses: `learning.run`, or the newest with a
-    checkpoint. None without one."""
-    named = settings.get("learning.run")
-    trained = [f for f in runs() if any(f.glob("model_*.pt"))]
+def learned(folder):
+    """What a run learns (LEARN)."""
+    return json.loads((folder / "run.json").read_text()).get("learn", "object tracking")
+
+
+def chosen_run(learn="object tracking"):
+    """The run the app uses for `learn` - object tracking: Recordings step 7
+    - as its setting names it (LEARN), or the newest with a checkpoint. None
+    without one."""
+    named = settings.get(LEARN[learn])
+    trained = [f for f in runs(learn) if any(f.glob("model_*.pt"))]
     for folder in trained:
         if folder.name == named:
             return folder

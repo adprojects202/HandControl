@@ -82,18 +82,8 @@ class Task:
     def build(cls, start):
         """The task with the object at `start` - (position m, quaternion w x y
         z) in the hand mount's frame - held there until released."""
-        robot = robot_module.load()
-        world_config, obj = settings.section("world"), settings.section("object")
-        mount = (np.array(world_config["hand_position"], float),
-                 mount_quat(world_config["hand_orientation"]))
-        max_torque = (STALL_TORQUE_NM * settings.get("hardware.current_limit_ma") / 1000
-                      / STALL_CURRENT_A)
-        spec = mujoco.MjSpec()
-        spec.modelname = "task"
-        spec.option.timestep = TIMESTEP
-        spec.option.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
-        _scene(spec)
-        _add_hand(spec, robot, mount, max_torque)
+        spec, robot, mount, max_torque = hand_spec()
+        obj = settings.section("object")
         position, quat = _compose(mount, *start)
         _add_object(spec, obj, position, quat)
         tips = _fingertips(robot)
@@ -102,7 +92,6 @@ class Task:
                             objtype=mujoco.mjtObj.mjOBJ_BODY, objname=tip,
                             reftype=mujoco.mjtObj.mjOBJ_GEOM, refname=OBJECT,
                             cutoff=GAP_CUTOFF)
-        _self_collision(spec)
         model = spec.compile()
         data = mujoco.MjData(model)
         mujoco.mj_forward(model, data)
@@ -148,6 +137,27 @@ class Task:
         rotation = np.zeros(9)
         mujoco.mju_quat2Mat(rotation, rotated)
         return local, rotation.reshape(3, 3)
+
+
+def hand_spec():
+    """The task sim without an object: the robot with its servos, colliding
+    with itself, on the World section's mount - as settings.json has it.
+    Returns (spec, robot, mount, max_torque); the hand-motion training uses
+    it alone (learning/handmotion.py), Task adds the object."""
+    robot = robot_module.load()
+    world_config = settings.section("world")
+    mount = (np.array(world_config["hand_position"], float),
+             mount_quat(world_config["hand_orientation"]))
+    max_torque = (STALL_TORQUE_NM * settings.get("hardware.current_limit_ma") / 1000
+                  / STALL_CURRENT_A)
+    spec = mujoco.MjSpec()
+    spec.modelname = "task"
+    spec.option.timestep = TIMESTEP
+    spec.option.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
+    _scene(spec)
+    _add_hand(spec, robot, mount, max_torque)
+    _self_collision(spec)
+    return spec, robot, mount, max_torque
 
 
 def _fingertips(robot):

@@ -3,14 +3,16 @@ a ClearML pipeline, started from this Mac:
 
     folder = run(progress)          # -> data/learning/runs/<stamp>/, fetched
 
-    train_gpu  (agent)  PPO over `learning.gpu_envs` task sims on the GPU
-                        (src/learning/gpu.py: MuJoCo Warp + PyTorch CUDA),
-                        `learning.iterations` rounds, then the test; the run
-                        folder comes back as an artifact
+    train_gpu  (agent)  PPO over `learning.gpu_envs` sims on the GPU (MuJoCo
+                        Warp + PyTorch CUDA), `learning.iterations` rounds,
+                        then the test; the run folder comes back as an
+                        artifact
 
-What it trains on goes up as a ClearML dataset - the bundle
-(`export_bundle`): this Mac's library, the task sim as MJCF (task.xml, the
-model this Mac compiles, with this Mac's settings) and the hand mount. The
+What it learns is `learning.learn`: "object tracking" (gpu.py, the task sim)
+or "hand motion" (gpu_hand.py, the hand alone). What it trains on goes up as
+a ClearML dataset - the bundle: this Mac's library and sim as MJCF (the
+model this Mac compiles, with this Mac's settings) - `export_bundle` for
+object tracking, handmotion.export_bundle for hand motion. The
 step is scripts/clearml_gpu_step.py from the GitHub repository at this very
 commit, so the code must be committed and pushed first (`blocked` says so;
 settings.json need not be - it is in the bundle). The agent installs
@@ -40,7 +42,7 @@ import mujoco
 
 from .. import settings
 from ..paths import ROOT
-from . import trajectories
+from . import handmotion, trajectories
 from .train import RUNS
 
 PROJECT = "HandRL"
@@ -99,21 +101,24 @@ def run(progress=lambda done, total, text="": None):
     if reason:
         raise RuntimeError(reason)
     config = settings.section("learning")
+    learn = config["learn"]
     repo, commit = _git("remote", "get-url", "origin").strip(), _git("rev-parse", "HEAD").strip()
     here = str(ROOT.relative_to(_git("rev-parse", "--show-toplevel").strip()))
     progress(0, 100, "uploading the bundle")
     with tempfile.TemporaryDirectory() as tmp:
-        dataset = Dataset.create(dataset_project=PROJECT, dataset_name="handlab gpu bundle")
-        dataset.add_files(str(export_bundle(Path(tmp) / "bundle")))
+        dataset = Dataset.create(dataset_project=PROJECT, dataset_name=f"handlab {learn} bundle")
+        export = handmotion.export_bundle if learn == "hand motion" else export_bundle
+        dataset.add_files(str(export(Path(tmp) / "bundle")))
         dataset.upload()
         dataset.finalize()
     step = Task.create(project_name=PROJECT, task_name="handlab train_gpu", repo=repo,
                        commit=commit, script=f"{here}/{STEP_SCRIPT}", working_directory=here,
                        requirements_file=str(ROOT / REQUIREMENTS))
-    pipe = PipelineController(name="handlab tracker gpu", project=PROJECT, add_run_number=True)
+    pipe = PipelineController(name=f"handlab {learn} gpu", project=PROJECT, add_run_number=True)
     # The step task itself runs (not a copy of it), so no draft is left behind.
     pipe.add_step("train_gpu", base_task_id=step.id, execution_queue=config["clearml_queue"],
                   clone_base_task=False, parameter_override={"handlab/bundle": dataset.id,
+                                      "handlab/learn": learn,
                                       "handlab/envs": config["gpu_envs"],
                                       "handlab/iterations": config["iterations"]})
     finished, failure = threading.Event(), []
@@ -154,8 +159,10 @@ def _mirror(pipe, progress):
             progress(0, 100, f"{name}: queued for the agent")
             continue
         scalars = task.get_last_scalar_metrics()
-        turn = scalars.get("/track/turn_deg", {}).get("/track/turn_deg", {}).get("last")
-        note = f", {turn:.1f} deg off while training" if turn is not None else ""
+        off = [scalars.get(key, {}).get(key, {}).get("last")
+               for key in ("/track/turn_deg", "/hand/angle_deg")]
+        off = [value for value in off if value is not None]
+        note = f", {off[0]:.1f} deg off while training" if off else ""
         progress(task.get_progress() or 0, 100, f"{name} on the agent: {status}{note}")
 
 

@@ -1,10 +1,11 @@
 """The ClearML pipeline's GPU training step, run by the agent (see
-src/learning/remote.py): PPO over the bundle's task sims on the GPU
-(src/learning/gpu.py), the test, and the run folder uploaded as the "run"
-artifact. Parameters ("handlab"): bundle (a ClearML dataset id), envs,
-iterations, and the contact solver's solver_iterations and
-linesearch_iterations (gpu.py). Not for running by hand: the pipeline sets
-them - or clone the task in ClearML and change them there.
+src/learning/remote.py): PPO over the bundle's sims on the GPU, the test,
+and the run folder uploaded as the "run" artifact. Parameters ("handlab"):
+bundle (a ClearML dataset id), learn ("object tracking": gpu.py; "hand
+motion": gpu_hand.py), envs, iterations, and the contact solver's
+solver_iterations and linesearch_iterations (gpu.py). Not for running by
+hand: the pipeline sets them - or clone the task in ClearML and change them
+there.
 """
 
 import json
@@ -20,9 +21,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import torch  # noqa: E402
 from clearml import Dataset, Task  # noqa: E402
 
-from src.learning import background, gpu, train  # noqa: E402
+from src.learning import background, gpu, gpu_hand, train  # noqa: E402
 
-PARAMETERS = {"bundle": "", "envs": 8192, "iterations": 1500,
+PARAMETERS = {"bundle": "", "learn": "object tracking", "envs": 8192, "iterations": 1500,
               "solver_iterations": gpu.SOLVER_ITERATIONS,
               "linesearch_iterations": gpu.LINESEARCH_ITERATIONS}
 
@@ -43,15 +44,23 @@ def main():
     envs, iterations = int(params["envs"]), int(params["iterations"])
     physics = {"iterations": int(params["solver_iterations"]),
                "linesearch": int(params["linesearch_iterations"])}
+    learn = params["learn"]
+    if learn not in train.LEARN:
+        raise ValueError(f"learn is {learn!r}: one of {', '.join(train.LEARN)}")
+    module = gpu_hand if learn == "hand motion" else gpu
     (folder / "run.json").write_text(json.dumps({
-        "method": "ppo", "device": torch.cuda.get_device_name(0), "envs": envs,
-        "iterations": iterations, "bundle": params["bundle"], "physics": physics,
+        "learn": learn, "method": "ppo", "device": torch.cuda.get_device_name(0),
+        "envs": envs, "iterations": iterations, "bundle": params["bundle"], "physics": physics,
         "library_made": json.loads((bundle / "bundle.json").read_text())["library_made"],
-        "config": train.CONFIG}, indent=2))
+        "config": train.CONFIG,
+        **({"env": {name: getattr(gpu_hand, name) for name in gpu_hand.SETTINGS}}
+           if module is gpu_hand else {})}, indent=2))
     writer = {"class_name": "src.learning.train:ProgressWriter", "iterations": iterations}
-    gpu.train(bundle, folder, envs, iterations, train.CONFIG, writer, physics=physics)
-    results = gpu.evaluate(bundle, folder, train.latest_checkpoint(folder), train.CONFIG,
-                           physics=physics)
+    module.train(bundle, folder, envs, iterations, train.CONFIG, writer, physics=physics)
+    results = module.evaluate(bundle, folder, train.latest_checkpoint(folder), train.CONFIG,
+                              physics=physics)
+    if module is gpu_hand:                     # the hand library goes with the run
+        shutil.copy(bundle / "bundle.json", folder / "bundle.json")
     (folder / "evaluation.json").write_text(json.dumps(results, indent=2))
     archive = shutil.make_archive(str(folder), "zip", root_dir=folder.parent, base_dir=folder.name)
     task.upload_artifact("run", artifact_object=archive, wait_on_upload=True)

@@ -73,25 +73,12 @@ class GpuTrackEnv(VecEnv):
         self.library = library
         self.motions = (np.flatnonzero(library["motion_feasible"] & ~library["motion_recorded"])
                         if motions is None else np.asarray(motions))
-        self.device = torch.device(device)
-        self.wp_device = "cpu" if self.device.type == "cpu" else f"cuda:{self.device.index or 0}"
-        wp.set_device(self.wp_device)
         self.randomize, self.cycle = randomize, cycle
-        self.generator = torch.Generator(device=self.device).manual_seed(seed)
-        self.rng = np.random.default_rng(seed)
-
-        xml = (bundle / "task.xml").read_text().replace(
-            '<compiler angle="radian"', f'<compiler angle="radian" meshdir="{ASSETS.as_posix()}"', 1)
-        mjm = mujoco.MjModel.from_xml_string(xml)
-        mjm.eq_active0[:] = 0                          # episodes start let go
-        mjm.opt.iterations, mjm.opt.ls_iterations = iterations, linesearch
-        self.mjm = mjm
-        self.model = mjw.put_model(mjm)
-        self.data = mjw.put_data(mjm, mujoco.MjData(mjm), nworld=envs, nconmax=CONTACTS,
-                                 njmax=CONSTRAINTS)
-        self.scales = torch.ones((envs, 3), device=self.device)
-        if randomize:
-            self._randomize(envs)
+        self.worlds = Worlds((bundle / "task.xml").read_text(), envs, device, seed, randomize,
+                             cpu.OBJECT, iterations, linesearch)
+        self.device, self.generator = self.worlds.device, self.worlds.generator
+        mjm = self.mjm = self.worlds.mjm
+        self.scales = self.worlds.scales
 
         self.num_envs, self.num_actions = envs, mjm.nu
         self.max_episode_length = int(library["motion_length"].max())
@@ -122,24 +109,14 @@ class GpuTrackEnv(VecEnv):
         self.start_grip = tensor(library["start_grip"])
         self.motion_choices = tensor(self.motions, torch.long)
 
-        # PyTorch views of MuJoCo Warp's arrays: written in place, read in place.
-        self.qpos = wp.to_torch(self.data.qpos)
-        self.qvel = wp.to_torch(self.data.qvel)
-        self.ctrl = wp.to_torch(self.data.ctrl)
-        self.sensordata = wp.to_torch(self.data.sensordata)
-        self.time = wp.to_torch(self.data.time)
-        self.warmstart = wp.to_torch(self.data.qacc_warmstart)
+        worlds = self.worlds
+        self.qpos, self.qvel, self.ctrl = worlds.qpos, worlds.qvel, worlds.ctrl
+        self.sensordata, self.time, self.warmstart = worlds.sensordata, worlds.time, worlds.warmstart
         self.targets = torch.zeros((envs, mjm.nu), device=self.device)
         self.previous_joints = torch.zeros_like(self.targets)
         self.motion = torch.zeros(envs, dtype=torch.long, device=self.device)
         self.steps = torch.zeros(envs, dtype=torch.long, device=self.device)
         self.gaps = torch.zeros((envs, self.tips), device=self.device)
-        self._count = 0
-        self._graph = None
-        if self.device.type == "cuda":
-            self.physics_stream = wp.Stream(self.wp_device)
-            self.physics_torch = wp.stream_to_torch(self.physics_stream)
-        wp.synchronize()
         self.restart()
 
     # ------------------------------------------------------------ VecEnv
@@ -159,17 +136,15 @@ class GpuTrackEnv(VecEnv):
         self.previous_joints = self.qpos[:, self.joint_qpos].clone()
         for substep in range(self.substeps):
             self.ctrl.copy_(torch.where((substep < lag)[:, None], previous, self.targets))
-            self._physics_step()
-        unstable = ~(torch.isfinite(self.qpos).all(dim=1) & torch.isfinite(self.qvel).all(dim=1))
+            self.worlds.step()
+        unstable = self.worlds.unstable()
         if unstable.any():                       # ends like a drop: kept finite until reset
             self.qpos[unstable] = self.start_qpos[self.motion_start[self.motion[unstable]]]
             self.qvel[unstable] = 0.0
         self.gaps = torch.nan_to_num(self.sensordata[:, :self.tips].clone())
         self.steps += 1
         self.episode_length_buf += 1
-        self._count += 1
-        if self._count % CHECK_EVERY == 0:
-            self._check_overflow()
+        self.worlds.counted()
 
         position_error, turn_error = self._errors()
         dropped = (position_error > cpu.DROP_M) | unstable
@@ -270,53 +245,109 @@ class GpuTrackEnv(VecEnv):
     def _noise(self, shape, scale):
         return torch.randn(shape, generator=self.generator, device=self.device) * scale
 
-    # ------------------------------------------------------------ physics
-    def _physics_step(self):
+class Worlds:
+    """`envs` worlds of one MJCF model on MuJoCo Warp, and PyTorch views of
+    their state (qpos, qvel, ctrl, sensordata, time, warmstart, xpos, xmat:
+    written and read in place). With `randomize`, per world: the servos'
+    strength, and `obj`'s friction and mass when one is named - `scales`
+    (envs, 3): friction, mass, torque (1 where not drawn). `step()` is one
+    MuJoCo step of all; `kinematics()` brings xpos and xmat to qpos (a step
+    leaves them where its start was); `unstable()` the worlds gone
+    non-finite; `counted()` checks the overflow flags every CHECK_EVERY
+    calls."""
+
+    def __init__(self, xml, envs, device, seed, randomize, obj=None,
+                 iterations=SOLVER_ITERATIONS, linesearch=LINESEARCH_ITERATIONS):
+        self.device = torch.device(device)
+        self.wp_device = "cpu" if self.device.type == "cpu" else f"cuda:{self.device.index or 0}"
+        wp.set_device(self.wp_device)
+        self.generator = torch.Generator(device=self.device).manual_seed(seed)
+        self.rng = np.random.default_rng(seed)
+        xml = xml.replace('<compiler angle="radian"',
+                          f'<compiler angle="radian" meshdir="{ASSETS.as_posix()}"', 1)
+        mjm = mujoco.MjModel.from_xml_string(xml)
+        mjm.eq_active0[:] = 0                          # no weld: episodes start let go
+        mjm.opt.iterations, mjm.opt.ls_iterations = iterations, linesearch
+        self.mjm = mjm
+        self.model = mjw.put_model(mjm)
+        self.data = mjw.put_data(mjm, mujoco.MjData(mjm), nworld=envs, nconmax=CONTACTS,
+                                 njmax=CONSTRAINTS)
+        self.scales = torch.ones((envs, 3), device=self.device)
+        if randomize:
+            self._randomize(envs, obj)
+        data = self.data
+        self.qpos, self.qvel = wp.to_torch(data.qpos), wp.to_torch(data.qvel)
+        self.ctrl, self.sensordata = wp.to_torch(data.ctrl), wp.to_torch(data.sensordata)
+        self.time, self.warmstart = wp.to_torch(data.time), wp.to_torch(data.qacc_warmstart)
+        self.xpos, self.xmat = wp.to_torch(data.xpos), wp.to_torch(data.xmat)
+        self._count, self._graphs = 0, {}
+        if self.device.type == "cuda":
+            self.physics_stream = wp.Stream(self.wp_device)
+            self.physics_torch = wp.stream_to_torch(self.physics_stream)
+        wp.synchronize()
+
+    def step(self):
         """One MuJoCo step of every world, after PyTorch's work so far and
         before its next."""
+        self._launch(mjw.step)
+
+    def kinematics(self):
+        self._launch(mjw.kinematics)
+
+    def _launch(self, function):
         if self.device.type != "cuda":
-            mjw.step(self.model, self.data)
+            function(self.model, self.data)
             return
         main = torch.cuda.current_stream(self.device)
         self.physics_torch.wait_stream(main)
         with wp.ScopedStream(self.physics_stream):
-            if self._graph is None:                 # the first step: compile, then capture
-                mjw.step(self.model, self.data)
+            graph = self._graphs.get(function)
+            if graph is None:                       # the first time: compile, then capture
+                function(self.model, self.data)
                 with wp.ScopedCapture() as capture:
-                    mjw.step(self.model, self.data)
-                self._graph = capture.graph
+                    function(self.model, self.data)
+                self._graphs[function] = capture.graph
             else:
-                wp.capture_launch(self._graph)
+                wp.capture_launch(graph)
         main.wait_stream(self.physics_torch)
 
-    def _check_overflow(self):
-        flags = int(np.bitwise_or.reduce(self.data.overflow.numpy()))
-        if flags & SERIOUS:
-            raise RuntimeError(f"MuJoCo Warp ran out of room ({mjw.OverflowType(flags & SERIOUS)!r}):"
-                               " raise gpu.CONTACTS / gpu.CONSTRAINTS")
+    def unstable(self):
+        """Worlds whose physics went non-finite, bool (envs,)."""
+        return ~(torch.isfinite(self.qpos).all(dim=1) & torch.isfinite(self.qvel).all(dim=1))
 
-    def _randomize(self, envs):
-        """Per world: the object's friction and mass, the servos' strength -
+    def counted(self):
+        self._count += 1
+        if self._count % CHECK_EVERY == 0:
+            flags = int(np.bitwise_or.reduce(self.data.overflow.numpy()))
+            if flags & SERIOUS:
+                raise RuntimeError(f"MuJoCo Warp ran out of room "
+                                   f"({mjw.OverflowType(flags & SERIOUS)!r}): raise "
+                                   "gpu.CONTACTS / gpu.CONSTRAINTS")
+
+    def _randomize(self, envs, obj):
+        """Per world: the servos' strength, and `obj`'s friction and mass -
         as TrackEnv draws them - into MuJoCo Warp's batched model fields."""
         mjm, model = self.mjm, self.model
-        geom, body = mjm.geom(cpu.OBJECT).id, mjm.body(cpu.OBJECT).id
-        friction = self.rng.uniform(*cpu.FRICTION_SCALE, envs)
-        mass = self.rng.uniform(*cpu.MASS_SCALE, envs)
+        friction, mass = np.ones(envs), np.ones(envs)
         torque = self.rng.uniform(*cpu.TORQUE_SCALE, envs)
 
         def batched(field, values):
             current = getattr(model, field)
             setattr(model, field, wp.array(values, dtype=current.dtype, device=self.wp_device))
 
-        geom_friction = np.repeat(mjm.geom_friction[None], envs, axis=0)
-        geom_friction[:, geom, 0] *= friction
-        batched("geom_friction", geom_friction)
-        body_mass = np.repeat(mjm.body_mass[None], envs, axis=0)
-        body_mass[:, body] *= mass
-        batched("body_mass", body_mass)
-        body_inertia = np.repeat(mjm.body_inertia[None], envs, axis=0)
-        body_inertia[:, body] *= mass[:, None]
-        batched("body_inertia", body_inertia)
+        if obj is not None:
+            geom, body = mjm.geom(obj).id, mjm.body(obj).id
+            friction = self.rng.uniform(*cpu.FRICTION_SCALE, envs)
+            mass = self.rng.uniform(*cpu.MASS_SCALE, envs)
+            geom_friction = np.repeat(mjm.geom_friction[None], envs, axis=0)
+            geom_friction[:, geom, 0] *= friction
+            batched("geom_friction", geom_friction)
+            body_mass = np.repeat(mjm.body_mass[None], envs, axis=0)
+            body_mass[:, body] *= mass
+            batched("body_mass", body_mass)
+            body_inertia = np.repeat(mjm.body_inertia[None], envs, axis=0)
+            body_inertia[:, body] *= mass[:, None]
+            batched("body_inertia", body_inertia)
         gain = np.repeat(mjm.actuator_gainprm[None], envs, axis=0)
         bias = np.repeat(mjm.actuator_biasprm[None], envs, axis=0)
         force = np.repeat(mjm.actuator_forcerange[None], envs, axis=0)
