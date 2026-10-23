@@ -432,7 +432,13 @@ sections.
   status line (camera, size, fps, hands found) or what went wrong, with
   *Retry*; the live preview with the tracked hands drawn on (skeleton,
   left/right and confidence, fps). *camera settings* (collapsed): capture
-  size, how many hands, find/follow confidence.
+  size, how many hands, find/follow confidence. *back camera*: a second
+  camera filming the other side of the hand (`vision.back_camera_index`,
+  none by default) - fingers the object hides from one camera, the other
+  sees. It runs beside the first with the same settings and its own hand
+  tracker, its preview and status below; *Record* records both: the back
+  camera's video_back.mp4, frames_back.npz (same clock) and hands_back.npz.
+  In Recordings the player shows the two side by side.
 
   A USB camera shows in the dropdown only once macOS has let it connect: on
   Apple silicon, answer the "Allow accessory to connect?" prompt when it is

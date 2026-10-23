@@ -159,6 +159,10 @@ DEFAULTS = {
     "vision": {
         "enabled": False,               # the camera only turns on when asked
         "camera_index": 0,              # which camera OpenCV opens
+        # A second camera filming the other side of the hand (-1: none), so
+        # fingers hidden from one by the object are seen by the other. Same
+        # capture size and tracker settings; recorded beside the first.
+        "back_camera_index": -1,
         "capture_width": 640,
         "capture_height": 480,
         # Show the preview flipped left-right, like a mirror. Preview only:
@@ -295,6 +299,7 @@ RANGES = {
     "object.friction": (0.0, 1.5),
     "object.position_mm[]": (-200.0, 300.0),
     "vision.camera_index": (0, 9),
+    "vision.back_camera_index": (-1, 9),
     "vision.capture_width": (160, 1920),
     "vision.capture_height": (120, 1080),
     "vision.max_hands": (1, 4),

@@ -234,6 +234,9 @@ class RecordingsSection:
             rgb = episode.image(self._index)
             if rgb is not None:
                 self._rgb = self._overlay(episode, self._index, rgb)
+                back = episode.back_image(self._index)
+                if back is not None:
+                    self._rgb = _beside(self._rgb, self._back_overlay(episode, back))
             self._rendered = key
         if self._rgb is not None and self.viewer is not None:
             self.player.draw(self.viewer, self._rgb)
@@ -251,6 +254,12 @@ class RecordingsSection:
             f"frame %d   {episode.times[self._index]:.2f} s")
         if changed:
             self._index, self._playing = index, False
+
+    def _back_overlay(self, episode, rgb):
+        """The back camera's frame with its tracked hands, mirrored like the
+        front's preview."""
+        hands = episode.back_hands_at(self._index) if self.show["skeleton"] else []
+        return draw(rgb, hands, None, mirror=settings.get("vision.mirror"))
 
     def _toggles(self):
         for name in self.show:
@@ -638,6 +647,13 @@ class RecordingsSection:
         number = row * SHEET_COLUMNS + column
         if 0 <= column < SHEET_COLUMNS and 0 <= number < len(sent):
             self._index, self._playing = sent[number], False
+
+
+def _beside(front, back):
+    """Two frames side by side, the back one scaled to the front's height."""
+    height = front.shape[0]
+    width = round(back.shape[1] * height / back.shape[0])
+    return np.hstack([front, cv2.resize(back, (width, height), interpolation=cv2.INTER_AREA)])
 
 
 PALM_AXES = ((255, 70, 70), (70, 220, 70), (80, 140, 255))   # x, y, z: red, green, blue

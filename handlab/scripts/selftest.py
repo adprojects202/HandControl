@@ -699,6 +699,40 @@ def recording_round_trip():
 
 
 @check
+def recording_a_back_camera_beside_the_front():
+    stored = settings.get("recording.folder")
+    line = np.linspace(0.2, 0.8, 21)
+    left = Hand("Left", 0.9, np.column_stack([line, line, 0 * line]), np.ones((21, 3)))
+    with tempfile.TemporaryDirectory() as tmp:
+        settings.set("recording.folder", tmp)              # in memory only, not saved
+        try:
+            recorder = Recorder(["a_joint"], lambda: (np.zeros(1), None))
+            vision = dict(settings.DEFAULTS["vision"], back_camera_index=1)
+            folder = recorder.start("grip", "Front Cam", vision, "Back Cam")
+            recorder.add(_frame(0, 9.99), "back")                # before the front's first: dropped
+            for n in range(10):
+                recorder.add(_frame(n, 10.0 + n / 30))
+                recorder.add(_frame(n, 10.0 + n / 30 + 0.012, [left] if n > 4 else []), "back")
+            recorder.stop()
+            episode = Episode(folder)
+            assert episode.has_back and episode.meta["back_camera"]["name"] == "Back Cam"
+            assert episode.meta["back_camera"]["frames"] == 10
+            assert np.allclose(episode.back_times, np.arange(10) / 30 + 0.012), "the same clock"
+            assert episode.back_index(7) == 7 and episode.back_image(7).shape == (120, 160, 3)
+            assert episode.back_hands_at(6)[0].side == "Left" and episode.back_hands_at(2) == []
+            assert episode.frames == 10 and not episode.hands["present"].any(), "streams apart"
+            episode.close()
+            # Without a back camera nothing changes.
+            folder = recorder.start("grip alone", "Front Cam", settings.DEFAULTS["vision"])
+            recorder.add(_frame(0, 20.0))
+            recorder.add(_frame(0, 20.01), "back")               # no back camera: ignored
+            recorder.stop()
+            assert not Episode(folder).has_back and "back_camera" not in Episode(folder).meta
+        finally:
+            settings.set("recording.folder", stored)
+
+
+@check
 def overlay_draws_masks_and_boxes_mirrored_with_the_frame():
     rgb = np.zeros((120, 160, 3), np.uint8)
     mask = np.zeros((120, 160), bool)

@@ -50,8 +50,9 @@ class App:
         self.zero = np.zeros(len(self.robot.names))
         self.bus = HardwareBus(self.robot.names)
         self.camera = Camera()
+        self.back_camera = Camera(stream="back")   # the other side of the hand, if set
         self.recorder = Recorder(self.robot.names, self.robot_state)
-        self.camera.recorder = self.recorder
+        self.camera.recorder = self.back_camera.recorder = self.recorder
         self.assistant = Assistant()
         self.processing = Job()             # steps run on a saved recording
         self.learning = Background()        # library builds and training, as processes
@@ -117,8 +118,15 @@ class App:
         return self.controller.command(), self.bus.encoders
 
     def apply_vision(self):
-        """Take the saved vision settings into the camera (starts or stops it)."""
-        self.camera.reconfigure(settings.section("vision"))
+        """Take the saved vision settings into the cameras (starts or stops
+        them): the back camera is the same settings with its own number, on
+        when one is set and it is not the front camera."""
+        vision = settings.section("vision")
+        self.camera.reconfigure(vision)
+        back = vision["back_camera_index"]
+        self.back_camera.reconfigure(dict(
+            vision, camera_index=back,
+            enabled=vision["enabled"] and back >= 0 and back != vision["camera_index"]))
 
     def plugins(self):
         """What runs inside the window: the Robot panel on the right, the
@@ -133,7 +141,8 @@ class App:
                                 self.apply_settings),
             ]),
             SidePanel("Vision", [
-                CameraSection(self.camera, self.recorder, self.apply_vision),
+                CameraSection(self.camera, self.recorder, self.apply_vision,
+                              self.back_camera),
                 RecordingsSection(self.assistant, self.processing, self.show_demo,
                                   self.show_plan),
                 AssistantSection(self.assistant, self.camera),
@@ -153,4 +162,5 @@ class App:
         finally:
             self.recorder.stop()
             self.camera.close()
+            self.back_camera.close()
             self.bus.close()

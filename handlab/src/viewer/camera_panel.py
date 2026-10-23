@@ -11,6 +11,11 @@ Under the camera's name: its calibration (focal length, from pictures of a
 checkerboard; src/vision/calibration.py) and *Calibrate...*, which opens a
 window to take those pictures. The calibration is kept in settings.json by
 camera name, and goes into every recording made with that camera.
+
+*back camera*: a second camera filming the other side of the hand (none by
+default) - fingers the object hides from one camera, the other sees. It
+runs beside the first with the same settings, its preview below; Record
+records both (recording/recorder.py).
 """
 
 from __future__ import annotations
@@ -51,9 +56,11 @@ FIELDS = (
 class CameraSection:
     title = "Camera"
 
-    def __init__(self, camera, recorder, apply_vision):
-        """`apply_vision()` takes the saved vision settings into the camera."""
+    def __init__(self, camera, recorder, apply_vision, back_camera=None):
+        """`apply_vision()` takes the saved vision settings into the cameras."""
         self.camera = camera
+        self.back_camera = back_camera
+        self.back_preview = GuiImage()
         self.recorder = recorder
         self.apply_vision = apply_vision
         self.form = SettingsForm(apply_vision)
@@ -93,10 +100,14 @@ class CameraSection:
         else:
             imgui.TextDisabled(self.camera.status)
 
+        self._back_choice()
         self._record()
         frame = self.camera.latest()
         if frame is not None and self.viewer is not None:
             self.preview.draw(self.viewer, frame.image)
+        back = self.back_camera.latest() if self.back_camera is not None else None
+        if back is not None and self.viewer is not None:
+            self.back_preview.draw(self.viewer, back.image)
 
         if imgui.TreeNode("camera settings"):
             if table("camera"):
@@ -153,10 +164,45 @@ class CameraSection:
         self.form.field("vision.aruco_mm", fmt="%.1f")
         imgui.EndTable()
 
-    def camera_name(self):
-        index = settings.get("vision.camera_index")
+    def camera_name(self, key="vision.camera_index"):
+        index = settings.get(key)
         names = self._cameras or []
-        return names[index] if index < len(names) else f"camera {index}"
+        return names[index] if 0 <= index < len(names) else f"camera {index}"
+
+    def _back_choice(self):
+        """The second camera: none, or one of the others the system lists."""
+        if self.back_camera is None:
+            return
+        imgui.AlignTextToFramePadding()
+        imgui.Text("back camera")
+        imgui.SetItemTooltip("a second camera filming the other side of the hand: "
+                             "fingers the object hides from one, the other sees. "
+                             "Recorded beside the first")
+        imgui.SameLine()
+        imgui.SetNextItemWidth(-1)
+        index, front = settings.get("vision.back_camera_index"), settings.get("vision.camera_index")
+        names = self._cameras or []
+        shown = "none" if index < 0 else self.camera_name("vision.back_camera_index")
+        if imgui.BeginCombo("##back_camera", shown):
+            if imgui.Selectable("none", index < 0) and index >= 0:
+                self.form.save("vision.back_camera_index", -1)
+            for number, name in enumerate(names):
+                if number == front:
+                    continue
+                if imgui.Selectable(f"{name}##back{number}", number == index) \
+                        and number != index:
+                    self.form.save("vision.back_camera_index", number)
+            imgui.EndCombo()
+        if index < 0:
+            return
+        if index == front:
+            imgui.TextColored(RED, "the back camera is the front camera - pick another")
+        elif self.back_camera.error:
+            imgui.PushTextWrapPos(0.0)
+            imgui.TextColored(RED, f"back: {self.back_camera.error}")
+            imgui.PopTextWrapPos()
+        else:
+            imgui.TextDisabled(f"back: {self.back_camera.status}")
 
     # ------------------------------------------------------------- calibration
     def _calibration_line(self):
@@ -310,11 +356,14 @@ class CameraSection:
         else:
             imgui.BeginDisabled(self.camera.latest() is None)
             if imgui.Button("Record"):
+                back = (self.camera_name("vision.back_camera_index")
+                        if self.back_camera is not None and self.back_camera.latest() is not None
+                        else None)
                 recorder.start(settings.get("recording.task"), self.camera_name(),
-                               settings.section("vision"))
+                               settings.section("vision"), back)
             imgui.EndDisabled()
-            imgui.SetItemTooltip("record the camera, the tracked hands and the "
-                                 "robot as an episode of this task")
+            imgui.SetItemTooltip("record the camera (and the back camera, when it runs), "
+                                 "the tracked hands and the robot as an episode of this task")
             imgui.SameLine()
             imgui.AlignTextToFramePadding()
             imgui.Text("task")

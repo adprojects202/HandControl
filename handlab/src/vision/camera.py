@@ -63,12 +63,14 @@ class Frame:
 
 
 class Camera:
-    def __init__(self, open_source=None):
+    def __init__(self, open_source=None, stream="front"):
         """`open_source(config)` returns something with OpenCV's
         `read() -> (ok, bgr)` and `release()`; the real camera by default,
-        which is only opened with the user's permission."""
+        which is only opened with the user's permission. `stream` names it
+        to the recorder ("front", or "back" for the second camera)."""
         self.open_source = open_source or open_camera
         self.needs_permission = open_source is None
+        self.stream = stream
         self.recorder = None     # given every frame, if set (recording.Recorder)
         self.status = "off"
         self.error = ""
@@ -163,7 +165,7 @@ class Camera:
                               markers=markers)
                 self._frame = frame
                 if self.recorder is not None:
-                    self.recorder.add(frame)
+                    self.recorder.add(frame, self.stream)
                 height, width = rgb.shape[:2]
                 self.status = (f"camera {config['camera_index']}: {width}x{height}, "
                                f"{self.fps:.0f} fps, {len(hands)} hand(s)")

@@ -12,6 +12,11 @@
                         score   (N, 2) left/right confidence (NaN: not seen)
                         present (N, 2) bool
         robot.npz     command and encoders (N, J) rad (NaN: no reading); joints (J,)
+        video_back.mp4, frames_back.npz, hands_back.npz
+                      the second camera's, when one filmed the other side of
+                      the hand (meta.json "back_camera"): its own frames and
+                      their times on the same clock (frames.npz's: the first
+                      camera's first frame is 0), its hands as hands.npz
         context.json  from the describe step: what the task is (see assistant/context.py)
         masks.npz     from the segment step, one track per context object:
                         masks  (O, N, H, ceil(W/8)) uint8, bits packed along the
@@ -58,6 +63,8 @@ FORMAT = 2
 META, VIDEO, FRAMES, HANDS, ROBOT, CONTEXT = (
     "meta.json", "video.mp4", "frames.npz", "hands.npz", "robot.npz", "context.json")
 MASKS, HANDS_CLEAN, OBJECT = "masks.npz", "hands_clean.npz", "object.npz"
+# The second camera's, when one filmed the other side of the hand.
+VIDEO_BACK, FRAMES_BACK, HANDS_BACK = "video_back.mp4", "frames_back.npz", "hands_back.npz"
 STAMP = "%Y%m%d-%H%M%S"
 
 
@@ -115,7 +122,10 @@ class Episode:
         if self.hands and self.meta.get("format", 1) < 2:
             self.hands = {key: value[:, ::-1] for key, value in self.hands.items()}
         self.robot = self._arrays(ROBOT)
+        self.back_times = self._arrays(FRAMES_BACK).get("time", np.zeros(0))
+        self.back_hands = self._arrays(HANDS_BACK)
         self._video = None
+        self._back_video, self._back_next = None, 0
         self._next = 0                   # the frame the video reads next
         self._steps = {}                 # step file name -> its arrays
 
@@ -198,6 +208,39 @@ class Episode:
         self._next = index + 1
         return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB) if ok else None
 
+    @property
+    def has_back(self):
+        """Whether a second camera filmed the other side of the hand."""
+        return len(self.back_times) > 0
+
+    def back_index(self, index):
+        """The back camera's frame nearest in time to frame `index`."""
+        return int(np.clip(np.searchsorted(self.back_times, self.times[index]), 0,
+                           len(self.back_times) - 1)) if self.has_back else None
+
+    def back_image(self, index):
+        """The back camera's frame nearest frame `index`, RGB, or None."""
+        if not self.has_back:
+            return None
+        back = self.back_index(index)
+        if self._back_video is None:
+            self._back_video = cv2.VideoCapture(str(self.folder / VIDEO_BACK), cv2.CAP_FFMPEG)
+            self._back_next = 0
+        if back != self._back_next:
+            self._back_video.set(cv2.CAP_PROP_POS_FRAMES, back)
+        ok, bgr = self._back_video.read()
+        self._back_next = back + 1
+        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB) if ok else None
+
+    def back_hands_at(self, index):
+        """The back camera's hands nearest frame `index`, as recorded."""
+        if not self.has_back or not self.back_hands:
+            return []
+        back, hands = self.back_index(index), self.back_hands
+        return [Hand(side, float(hands["score"][back, slot]), hands["image"][back, slot],
+                     hands["world"][back, slot])
+                for slot, side in enumerate(SIDES) if hands["present"][back, slot]]
+
     def read_frames(self, indices):
         """The frames at `indices` (sorted), RGB, in one pass through the
         video. Uses its own reader, so it may run on another thread than
@@ -237,9 +280,10 @@ class Episode:
         return sorted(set(np.linspace(0, self.frames - 1, count).round().astype(int).tolist()))
 
     def close(self):
-        if self._video is not None:
-            self._video.release()
-            self._video = None
+        for video in (self._video, self._back_video):
+            if video is not None:
+                video.release()
+        self._video = self._back_video = None
 
     def _arrays(self, name):
         path = self.folder / name
