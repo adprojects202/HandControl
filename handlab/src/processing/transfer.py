@@ -28,9 +28,8 @@ from scipy.spatial.transform import Rotation
 
 from .. import settings
 from ..vision.tracker import SIDES
-from .pose3d import POSE3D
+from .files import POSE3D, SIM
 
-SIM = "sim.npz"
 ROBOT_HAND = "Left"
 # Rows: the mount's x (out of the palm), y (across it), z (along the fingers)
 # in the person's palm axes (x up the fingers, y = z x x, z out of the palm).

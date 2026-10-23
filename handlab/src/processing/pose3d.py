@@ -113,8 +113,9 @@ from .. import settings
 from ..recording.episode import OBJECT
 from ..vision import aruco
 from ..vision.tracker import SIDES
+from ..sim.symmetry import box_symmetries as _symmetries
+from .files import POSE3D
 
-POSE3D = "pose3d.npz"
 PALM = [0, 5, 9, 13, 17]
 WRIST, INDEX_KNUCKLE, MIDDLE_KNUCKLE, PINKY_KNUCKLE = 0, 5, 9, 17
 # cross(index - wrist, pinky - wrist) points into the palm of a left hand,
@@ -319,21 +320,6 @@ def _palm_axes(points, side):
 
 
 # ------------------------------------------------------------------ object
-def _symmetries(size):
-    """Rotations that map a box of `size` onto itself (a cube: 24)."""
-    found = []
-    for order in ((0, 1, 2), (0, 2, 1), (1, 0, 2), (1, 2, 0), (2, 0, 1), (2, 1, 0)):
-        if not np.allclose(np.asarray(size)[list(order)], size):
-            continue
-        for signs in np.ndindex(2, 2, 2):
-            turn = np.zeros((3, 3))
-            for row, (column, sign) in enumerate(zip(order, signs)):
-                turn[row, column] = -1.0 if sign else 1.0
-            if np.linalg.det(turn) > 0:
-                found.append(turn)
-    return found
-
-
 def _nearest_equivalent(rotation, last, symmetries):
     """Of the poses that look the same as `rotation`, the nearest `last`."""
     return max((rotation @ turn for turn in symmetries),

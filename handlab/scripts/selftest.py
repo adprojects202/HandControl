@@ -7,6 +7,7 @@ Exits non-zero if any check fails.
 
 import base64
 import json
+import os
 import sys
 import tempfile
 import time
@@ -973,9 +974,10 @@ def box_pose_is_recovered_from_its_outline():
     from src.processing import pose3d
     matrix = np.array([[520.0, 0, 320], [0, 520.0, 240], [0, 0, 1]])
     camera, size = (matrix, np.zeros(5)), np.array([0.055] * 3)
-    corners, symmetries = pose3d._box_corners(size), pose3d._symmetries(size * 1000)
-    assert len(symmetries) == 24 and len(pose3d._symmetries([55, 55, 30])) == 8
-    assert len(pose3d._symmetries([40, 55, 30])) == 4
+    from src.sim.symmetry import box_symmetries
+    corners, symmetries = pose3d._box_corners(size), box_symmetries(size * 1000)
+    assert len(symmetries) == 24 and len(box_symmetries([55, 55, 30])) == 8
+    assert len(box_symmetries([40, 55, 30])) == 4
     axis = np.array([0.3, 1.0, 0.2]) / np.linalg.norm([0.3, 1.0, 0.2])
     start = Rotation.from_euler("xyz", [20, 30, 10], degrees=True)
     pose, worst_position, worst_turn = None, 0.0, 0.0
@@ -1184,6 +1186,425 @@ def pose3d_files_from_before_markers_still_open():
         assert (pose["marker_id"] == -1).all()
         camera = Calibration(160, 120, 100.0, 100.0, 80.0, 60.0, (0.0,) * 5, 0.1, 8, "t")
         assert len(_pose_lines(pose, 0, camera)) == 12        # the box's edges
+
+
+@check
+def world_plan_stage_stands_beside_the_hand_or_parks():
+    from src.world import PLAN_OFFSET
+    original = settings._current
+    try:
+        world = _world_with()
+        model, data = world.model, world.data
+        q = world.robot.clamp(np.full(len(world.robot), 0.5))
+        object_pose = (np.array([0.03, 0.0, 0.07]), np.array([1.0, 0, 0, 0]))
+        world.set_plan((q, object_pose, object_pose))
+        world.hold()
+        palm = {hand: data.xpos[model.body(f"{hand}/palm_base_link").id] for hand in HANDS}
+        assert np.allclose(palm["plan"] - palm["encoder"], PLAN_OFFSET, atol=1e-9)
+        assert np.allclose(world.pose("plan"), q)
+        placed = data.xpos[model.body("plan_object").id] - palm["plan"]
+        assert np.allclose(placed, object_pose[0], atol=1e-9), placed
+        assert all(model.geom_contype[g] == 0 and model.geom_conaffinity[g] == 0
+                   for g in world.geom_ids("plan")), "the plan hand touches nothing"
+        world.set_plan(None)
+        world.hold()
+        assert data.xpos[model.body("plan/palm_base_link").id][2] < -1, "parked"
+        assert data.xpos[model.body("plan_object").id][2] < -1, "parked"
+    finally:
+        settings._current = original
+
+
+def _task_with_defaults(start=None):
+    """The task sim on default settings, the object where the World section
+    places it unless `start` says otherwise."""
+    from src.sim.task import Task
+    tmp = tempfile.mkdtemp()
+    settings._current = settings.Settings(Path(tmp) / "settings.json")
+    placed = np.array(settings.get("object.position_mm")) / 1000.0
+    return Task.build(start or (placed, np.array([1.0, 0, 0, 0])))
+
+
+@check
+def task_sim_holds_the_object_until_released():
+    from src.sim.task import STALL_CURRENT_A, STALL_TORQUE_NM
+    original = settings._current
+    try:
+        task = _task_with_defaults()
+        model, data = task.model, task.data
+        cap = STALL_TORQUE_NM * settings.get("hardware.current_limit_ma") / 1000 / STALL_CURRENT_A
+        assert np.allclose(model.actuator_forcerange, [[-cap, cap]] * model.nu), "servo torque"
+        assert len(task.tips) == len(robot_module.load().groups()) == len(data.sensordata)
+        start = task.object_pose(data.qpos)[0]
+        while data.time < 0.5:
+            mujoco.mj_step(model, data)
+        assert np.linalg.norm(task.object_pose(data.qpos)[0] - start) < 0.002, "held"
+        task.release(data)
+        while data.time < 1.0:
+            mujoco.mj_step(model, data)
+        assert task.object_pose(data.qpos)[0][2] < start[2] - 0.02, "falls once let go"
+        assert (data.sensordata <= 0.1 + 1e-9).all() and (data.sensordata > -0.01).all(), \
+            data.sensordata
+    finally:
+        settings._current = original
+
+
+@check
+def task_sim_hand_cannot_pass_through_itself():
+    original = settings._current
+    try:
+        task = _task_with_defaults()
+        model, data = task.model, task.data
+        names = robot_module.load().names
+        hand = [c for c in data.contact[:data.ncon] if c.efc_address >= 0
+                and "object" not in (model.geom(c.geom1).name, model.geom(c.geom2).name)]
+        assert not hand, "links push on each other at rest"
+        assert task.self_overlap(data)[0] < 1e-6
+
+        def drive(**degrees):
+            mujoco.mj_resetData(model, data)
+            data.eq_active[:] = 0
+            data.qpos[task.object_qpos:task.object_qpos + 3] += [0.5, 0.0, 0.0]   # out of the way
+            for joint, angle in degrees.items():
+                data.ctrl[names.index(f"{joint}_joint")] = np.radians(angle)
+            worst = 0.0
+            for step in range(1000):
+                mujoco.mj_step(model, data)
+                if step % 100 == 0:
+                    worst = max(worst, task.self_overlap(data)[0])
+            return worst
+
+        # The middle finger swung at its neighbour stops against it.
+        worst = drive(middle_adduction=20)
+        reached = np.degrees(data.qpos[names.index("middle_adduction_joint")])
+        assert reached < 15 and worst < 0.0015, (reached, worst)
+        # The thumb swept across the palm meets the fingers, not passes them.
+        assert drive(thumb_adduction=110, thumb_proximal=100, thumb_middle=60) < 0.001
+    finally:
+        settings._current = original
+
+
+@check
+def planner_finds_a_grip_that_holds_without_the_weld():
+    from src.sim import planner as planning
+    original = settings._current
+    saved = planning.GRASP_SAMPLES, planning.GRASP_ROUNDS
+    try:
+        planning.GRASP_SAMPLES, planning.GRASP_ROUNDS = 256, 10
+        task = _task_with_defaults()
+        planner = planning.Planner(task, seed=0)
+        weld = task.model.equality("hold").id
+        grip = planner.grasp()
+        assert task.model.eq_active0[weld] == 0, "rollouts leave the weld as they found it"
+        assert grip["slip_m"] < 0.01 and np.degrees(grip["turn_rad"]) < 10, grip
+        # In the real sim: close held, let go, and it stays.
+        data = task.data
+        data.ctrl[:] = grip["targets"]
+        while data.time < planning.CLOSE:
+            mujoco.mj_step(task.model, data)
+        task.release(data)
+        before = task.object_pose(data.qpos)[0]
+        while data.time < planning.CLOSE + planning.LET_GO:
+            mujoco.mj_step(task.model, data)
+        assert np.linalg.norm(task.object_pose(data.qpos)[0] - before) < 0.01
+    finally:
+        planning.GRASP_SAMPLES, planning.GRASP_ROUNDS = saved
+        settings._current = original
+
+
+@check
+def plan_step_saves_its_file_and_out_of_date_files_are_flagged():
+    from src.processing import plan as plan_step
+    from src.processing.files import PLAN, SIM, stale
+    from src.sim import planner as planning
+    original = settings._current
+    saved = planning.GRASP_SAMPLES, planning.GRASP_ROUNDS, planning.SAMPLES
+    count = 10
+    try:
+        planning.GRASP_SAMPLES, planning.GRASP_ROUNDS, planning.SAMPLES = 128, 4, 32
+        tmp = tempfile.mkdtemp()
+        settings._current = settings.Settings(Path(tmp) / "settings.json")
+        folder = Path(tmp) / "task" / "20261023-000000"
+        _bare_episode(folder, count)
+        placed = np.array(settings.get("object.position_mm")) / 1000.0
+        np.savez(folder / "pose3d.npz", made=np.array("2026-10-23T10:00:00"))
+        np.savez(folder / "sim.npz", position=np.tile(placed, (count, 1)),
+                 quat=np.tile([1.0, 0, 0, 0], (count, 1)), valid=np.ones(count, bool),
+                 time=np.arange(count) / 30.0, hand=np.array("Left"),
+                 made=np.array("2026-10-23T10:00:01"))
+        episode = Episode(folder)
+        assert stale(episode) == {}
+        result = plan_step.plan(episode)
+        saved_plan = episode.arrays(plan_step.PLAN)
+        rows = len(saved_plan["time"])
+        assert saved_plan["qpos"].shape == (rows, len(robot_module.load()))
+        assert saved_plan["quat"].shape == (rows, 4) and saved_plan["gaps"].shape[1] == 4
+        assert set(result) >= {"grip_slip_mm", "dropped_at", "position_mm", "still_turn_deg"}
+        assert result["still_position_mm"] == (0.0, 0.0), "a goal that never moves"
+        np.savez(folder / "pose3d.npz", made=np.array("2099-01-01T00:00:00"))
+        episode.reload()
+        assert set(stale(episode)) == {SIM, PLAN}
+        try:
+            plan_step.plan(episode)
+            raise AssertionError("planned from an out-of-date sim.npz")
+        except ValueError as refused:
+            assert "Send to sim again" in str(refused)
+    finally:
+        planning.GRASP_SAMPLES, planning.GRASP_ROUNDS, planning.SAMPLES = saved
+        settings._current = original
+
+
+@check
+def out_of_date_files_follow_what_they_were_made_from():
+    from src.processing.files import PLAN, POSE3D, SIM, TRACK, stale
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp) / "task" / "20261023-000000"
+        _bare_episode(folder, 3)
+        for name, made in ((POSE3D, "10:00"), (SIM, "10:01"), (PLAN, "10:02"), (TRACK, "10:03")):
+            np.savez(folder / name, made=np.array(f"2026-10-23T{made}:00"))
+        episode = Episode(folder)
+        assert stale(episode) == {}
+        np.savez(folder / SIM, made=np.array("2026-10-23T10:05:00"))      # sent to sim again
+        episode.reload()
+        assert set(stale(episode)) == {PLAN, TRACK}
+        np.savez(folder / POSE3D, made=np.array("2026-10-23T10:09:00"))   # and fitted again
+        episode.reload()
+        assert set(stale(episode)) == {SIM, PLAN, TRACK}
+
+
+@check
+def generated_motions_start_where_asked_and_move_smoothly():
+    from scipy.spatial.transform import Rotation
+    from src.learning import trajectories as library
+    rng = np.random.default_rng(0)
+    start, quat = np.array([0.03, 0.01, 0.07]), np.array([1.0, 0.0, 0.0, 0.0])
+    # minimum-jerk peaks at 1.875x the mean speed; the shortest move is SEGMENT_S[0]
+    frames = library.SEGMENT_S[0] * library.RATE
+    for _ in range(20):
+        positions, quats = library._generate(start, quat, rng)
+        assert np.allclose(positions[0], start) and abs(quats[0] @ quat) > 1 - 1e-9
+        assert (np.linalg.norm(positions - start, axis=1) <= library.SHIFT_M + 1e-9).all()
+        step = np.linalg.norm(np.diff(positions, axis=0), axis=1).max()
+        assert step <= 2 * library.SHIFT_M * 1.875 / frames + 1e-9, step
+        turns = (Rotation.from_quat(quats[1:, [1, 2, 3, 0]])
+                 * Rotation.from_quat(quats[:-1, [1, 2, 3, 0]]).inv()).magnitude()
+        assert turns.max() <= library.TURN_RANGE[1] * 1.875 / frames + 1e-9
+    # Wobbles: within reach, and no faster than their waves and easing allow.
+    fastest = (2 * np.pi * library.WOBBLE_HZ[1] + 1.875 / library.RAMP_S) / library.RATE
+    for _ in range(20):
+        positions, quats = library._wobble(start, quat, rng)
+        assert np.allclose(positions[0], start) and abs(quats[0] @ quat) > 1 - 1e-9
+        turned = Rotation.from_quat(quats[:, [1, 2, 3, 0]]) * Rotation.from_quat(quat[[1, 2, 3, 0]]).inv()
+        assert (turned.magnitude() <= library.WOBBLE_TURN[1] + 1e-9).all()
+        assert (np.linalg.norm(positions - start, axis=1) <= library.SHIFT_M + 1e-9).all()
+        assert np.linalg.norm(np.diff(positions, axis=0), axis=1).max() \
+            <= fastest * library.SHIFT_M + 1e-9
+        steps = (Rotation.from_quat(quats[1:, [1, 2, 3, 0]])
+                 * Rotation.from_quat(quats[:-1, [1, 2, 3, 0]]).inv()).magnitude()
+        assert steps.max() <= fastest * library.WOBBLE_TURN[1] + 1e-9
+
+
+@check
+def tracker_env_holds_with_the_grip_and_sees_goals_up_to_symmetry():
+    import torch
+    from scipy.spatial.transform import Rotation
+    from src.learning.env import TrackEnv
+    from src.learning.trajectories import let_go
+    from src.sim import planner as planning
+    original = settings._current
+    saved = planning.GRASP_SAMPLES, planning.GRASP_ROUNDS
+    try:
+        planning.GRASP_SAMPLES, planning.GRASP_ROUNDS = 256, 10
+        task = _task_with_defaults()
+        grip = planning.Planner(task, seed=0).grasp()["targets"]
+        state = let_go(task, grip)
+        start_position, start_rotation = task.object_pose(state[1:1 + task.model.nq])
+        length = 40
+        quarter = start_rotation @ Rotation.from_euler("z", 90, degrees=True).as_matrix()
+        tilted = start_rotation @ Rotation.from_euler("x", 30, degrees=True).as_matrix()
+        motions = [np.repeat(r[None], length, 0) for r in (quarter, tilted)]
+        quat = lambda r: Rotation.from_matrix(r).as_quat()[:, [3, 0, 1, 2]]   # noqa: E731
+        library = {"start_position": start_position[None], "start_quat": quat(start_rotation[None]),
+                   "start_grip": grip[None], "start_state": state[None],
+                   "motion_start": np.array([0, 0]), "motion_length": np.array([length] * 2),
+                   "motion_position": np.repeat(start_position[None, None], length, 1).repeat(2, 0),
+                   "motion_quat": np.stack([quat(m) for m in motions]),
+                   "motion_recorded": np.array([False, False]),
+                   "motion_feasible": np.array([True, True])}
+        env = TrackEnv(library, envs=2, randomize=False, cycle=True)
+        policy = env.get_observations()["policy"].numpy()
+        assert policy.shape == (2, 3 * len(grip) + 9 + 9 * len(env.future))
+        turns = policy[:, -6 * len(env.future):].reshape(2, len(env.future), 6)
+        # A cube turned a quarter about its own axis looks the same: no turn
+        # left to make. Tilted 30 degrees: the turn the policy is shown.
+        assert np.allclose(turns[0], [1, 0, 0, 0, 1, 0], atol=1e-6), turns[0]
+        angle = np.degrees(np.arccos((np.trace(_six_back(turns[1, 0])) - 1) / 2))
+        assert abs(angle - 30) < 1e-3, angle
+        drops = 0
+        for _ in range(length - 2):                     # zero action: keep the grip
+            _, _, done, extras = env.step(torch.zeros(2, env.num_actions))
+            drops += int((done & ~extras["time_outs"]).sum())
+        assert drops == 0, "the grip let go"
+    finally:
+        planning.GRASP_SAMPLES, planning.GRASP_ROUNDS = saved
+        settings._current = original
+
+
+@check
+def learning_runs_in_the_background_reports_and_can_be_cancelled():
+    from src.learning import background
+    from src.paths import ROOT
+    saved = background.FOLDER, background.STATUS, background.SCRIPTS
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        status = tmp / "status.json"
+
+        def fake(name, body):
+            script = tmp / f"{name}.py"
+            script.write_text(
+                f"import sys, time, os\nsys.path.insert(0, {str(ROOT)!r})\n"
+                "from pathlib import Path\nfrom src.learning import background\n"
+                f"background.STATUS = Path({str(status)!r})\n"
+                f"background.begin({name!r})\n" + body)
+            return script
+
+        try:
+            background.FOLDER, background.STATUS = tmp, status
+            background.SCRIPTS = {
+                "library": fake("library", "background.report(done=1, total=2, text='half')\n"
+                                           "background.finish(state='done', text='built')\n"),
+                "train": fake("train", "time.sleep(60)\n")}
+            task = background.Background()
+            assert task.start("library")
+            _wait(lambda: task.status()["state"] not in background.ACTIVE, timeout=20)
+            done = task.status()
+            assert done["state"] == "done" and done["text"] == "built", done
+            assert done["log"] == str(tmp / "library.log"), "the panel's log path is kept"
+            assert task.start("train")
+            _wait(lambda: task.status()["state"] == "running", timeout=20)
+            assert not task.start("library"), "one task at a time"
+            pid = task.status()["pid"]
+            task.cancel()
+            assert task.status()["state"] == "cancelled"
+            try:
+                os.kill(pid, 0)
+                raise AssertionError("cancelled, but the process is still there")
+            except ProcessLookupError:
+                pass
+            background.SCRIPTS = {"library": fake("library", "os._exit(3)\n")}
+            task.start("library")
+            _wait(lambda: task.status()["state"] not in background.ACTIVE, timeout=20)
+            assert task.status()["state"] == "stopped", "ended without saying so"
+        finally:
+            background.FOLDER, background.STATUS, background.SCRIPTS = saved
+
+
+@check
+def training_progress_is_written_each_round():
+    from src.learning import background, train
+    saved = background.STATUS
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            background.STATUS = Path(tmp) / "status.json"
+            writer = train.ProgressWriter(tmp, iterations=3)
+            for it in range(3):
+                writer.add_scalar("/track/turn_deg", 10.0 - it, it)
+                writer.add_scalar("/track/position_mm", 5.0, it)
+                if it == 1:
+                    status = background.read()
+                    assert status["done"] == 1 and status["total"] == 3, status
+            writer.stop()
+            rows = train.progress(Path(tmp))
+            assert [r["iteration"] for r in rows] == [0, 1, 2]
+            assert rows[2]["/track/turn_deg"] == 8.0
+            assert background.read()["done"] == 3
+        finally:
+            background.STATUS = saved
+
+
+@check
+def the_planner_teaches_the_policy_one_round():
+    import io
+    import contextlib
+    from scipy.spatial.transform import Rotation
+    from src.learning import background, teacher, train
+    from src.learning.trajectories import let_go
+    from src.sim import planner as planning
+    original, status = settings._current, background.STATUS
+    saved = planning.GRASP_SAMPLES, planning.GRASP_ROUNDS, planning.SAMPLES
+    try:
+        planning.GRASP_SAMPLES, planning.GRASP_ROUNDS, planning.SAMPLES = 256, 10, 16
+        task = _task_with_defaults()
+        grip = planning.Planner(task, seed=0).grasp()["targets"]
+        state = let_go(task, grip)
+        position, rotation = task.object_pose(state[1:1 + task.model.nq])
+        length = 12
+        turned = rotation @ Rotation.from_euler("x", 10, degrees=True).as_matrix()
+        quat = Rotation.from_matrix(turned).as_quat()[[3, 0, 1, 2]]
+        library = {"start_position": position[None],
+                   "start_quat": Rotation.from_matrix(rotation).as_quat()[None][:, [3, 0, 1, 2]],
+                   "start_grip": grip[None], "start_state": state[None],
+                   "motion_start": np.array([0]), "motion_length": np.array([length]),
+                   "motion_position": np.repeat(position[None, None], length, 1),
+                   "motion_quat": np.repeat(quat[None, None], length, 1),
+                   "motion_recorded": np.array([False]), "motion_feasible": np.array([True])}
+        with tempfile.TemporaryDirectory() as tmp:
+            background.STATUS = Path(tmp) / "status.json"
+            with contextlib.redirect_stdout(io.StringIO()):
+                teacher.teach(library, Path(tmp), 1, train.CONFIG,
+                              train.ProgressWriter(tmp, 1))
+            rows = train.progress(Path(tmp))
+            assert len(rows) == 1 and rows[0]["Teacher/labels"] >= length - 2, rows
+            assert np.isfinite(rows[0]["Teacher/loss"]) and rows[0]["Teacher/beta"] == 1.0
+            assert (Path(tmp) / "model_0.pt").exists()
+            with contextlib.redirect_stdout(io.StringIO()):
+                runs = train.follow(Path(tmp), library, [0])      # the checkpoint loads
+            assert len(runs[0]["joints"]) >= 1
+    finally:
+        planning.GRASP_SAMPLES, planning.GRASP_ROUNDS, planning.SAMPLES = saved
+        settings._current, background.STATUS = original, status
+
+
+@check
+def clearml_training_needs_pushed_code_and_brings_the_run_back():
+    import shutil
+    import subprocess
+    from src.learning import remote
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+
+        def git(*args, where=tmp / "work"):
+            subprocess.run(["git", *args], cwd=where, check=True, capture_output=True)
+
+        (tmp / "work").mkdir()
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "test@example.com")
+        git("config", "user.name", "test")
+        (tmp / "work" / "a.txt").write_text("one")
+        assert "uncommitted" in remote.blocked(tmp / "work")
+        git("add", "a.txt")
+        git("commit", "-qm", "one")
+        assert "remote" in remote.blocked(tmp / "work")
+        git("init", "-q", "--bare", str(tmp / "origin.git"), where=tmp)
+        git("remote", "add", "origin", str(tmp / "origin.git"))
+        assert "push" in remote.blocked(tmp / "work"), "the branch is not on the remote"
+        git("push", "-q", "-u", "origin", "main")
+        assert remote.blocked(tmp / "work") == ""
+        (tmp / "work" / "a.txt").write_text("two")
+        git("commit", "-qam", "two")
+        assert "not pushed" in remote.blocked(tmp / "work")
+        # A run comes back as a zipped folder and lands among the runs.
+        run = tmp / "made" / "20261023-150000"
+        run.mkdir(parents=True)
+        (run / "run.json").write_text("{}")
+        archive = shutil.make_archive(str(run), "zip", root_dir=run.parent, base_dir=run.name)
+        landed = remote.unpack(Path(archive), runs=tmp / "runs")
+        assert landed == tmp / "runs" / "20261023-150000" and (landed / "run.json").exists()
+
+
+def _six_back(six):
+    """A rotation matrix from its first two columns (6,)."""
+    x, y = six[:3], six[3:]
+    return np.stack([x, y, np.cross(x, y)], axis=1)
 
 
 def _wait(condition, timeout=2.0):

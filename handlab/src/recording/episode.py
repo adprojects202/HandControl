@@ -28,6 +28,8 @@
                         phantoms (detections dropped), filled_frames
         object.npz    from the object step (processing/objects.py), per mask
                       track, in the image: see that module
+        pose3d.npz, sim.npz, plan.npz   Fit 3D, Send to sim, Plan in sim:
+                      see processing/pose3d.py, transfer.py, plan.py
 
 Recording writes video.mp4 as it goes and the arrays when it stops; meta.json
 is written at the start with "complete": false and finished at the stop, so

@@ -21,6 +21,7 @@ world is the same however it is opened.
 | command | translucent purple | the joint command the software sends out |
 | object | orange | the calibration box, when switched on |
 | demo | translucent cyan | a recording's object moved onto the robot hand (Recordings > transfer to sim); out of sight otherwise |
+| plan stage | green hand, orange box, cyan ghost | a planned task replayed (Recordings > plan in sim), 0.3 m beside the real hand: the plan hand, the object as the task sim moved it, and where the recording wanted it; out of sight otherwise |
 
 Both stand on the same mount, so the gap between them is the gap between what
 was asked and what the robot did: the purple ghost sits on the solid hand
@@ -175,6 +176,7 @@ data/tasks/<task>/<YYYYmmdd-HHMMSS>/     (data/ is not committed)
   object.npz    the object step: centre, area, angle, contact, in-hand motion
   pose3d.npz    transfer, Fit 3D: palm and object poses in metres; the object in the palm
   sim.npz       transfer, Send to sim: the object's motion in the robot hand's frame
+  plan.npz      plan in sim: the grip, the hand's joints and the simulated object, errors
 ```
 
 `meta.json` is written with `"complete": false` when recording starts and
@@ -262,12 +264,111 @@ Steps on a recording, in order (Recordings section):
    the calibration object. With *show in sim*, a translucent cyan ghost box
    in the world (`demo`, touching nothing) follows the player's frame. The
    robot is a left hand; a right-hand demonstration is not mirrored yet.
+   A step whose input was made again after it ran says so (amber) and the
+   next step will not run on it: Send to sim after a new Fit 3D, Plan after
+   a new Send to sim.
+
+6. **Plan in sim** (`src/processing/plan.py` -> `plan.npz`): can this hand,
+   mounted as the World section has it, do what the recording shows? No
+   training. The task sim (`src/sim/task.py`) is the robot with a position
+   servo on every joint - XL330-M288 from its spec sheet: 0.52 N m at
+   1.47 A, so `hardware.current_limit_ma` caps the torque (300 mA: 0.11 N m)
+   - the object free, gravity, and a distance sensor from each fingertip to
+   the object. The hand collides with itself, as the real one does: each
+   link as its CAD mesh's convex hull; only parts joined at rest are left
+   out (a finger's first link against the base and palm it is mounted in,
+   and neighbouring fingers' proximal and middle links, which already
+   overlap by up to 1 mm) - found from the CAD when the sim is built. Forced
+   into each other, the fingers stop: no pair gets more than ~1 mm deeper
+   than at rest. (Until 2026-10-23 the hand did not collide with itself, and
+   plans pushed fingers through each other.) The planner (`src/sim/planner.py`) first searches for a
+   **grip**: one servo target per joint, tried 512 at a time in batched
+   MuJoCo rollouts - close on the object held where the motion starts, let
+   go, measure how far it slips - narrowed by the cross-entropy method over
+   20 rounds. Then it **follows** the motion with predictive sampling:
+   every 40 ms, 128 short finger motions are run 0.4 s ahead from the sim's
+   state and the one whose object best matches the recording is used. The
+   summary gives the grip's slip, whether the object was ever lost, and the
+   error while following next to the error had the object just stayed put
+   (following no better than that has not moved it). With *show in sim* the
+   plan stage replays it at the player's frame; the plot's cursor is the
+   player's frame. On the red-cube recording, hand upright: a grip that
+   slips 0.7 mm, 1 degree when let go, held throughout; following 4.6 mm /
+   5.9 degrees off (median; worst 8.8 mm, 17 degrees) where staying put
+   would be 10 mm / 23 degrees; fingers at most 1.8 mm into each other. About
+   24 s. A plan made for one mount says so when the World section's
+   orientation changes.
+
+7. **Track with the tracker** (`src/processing/track.py` -> `track.npz`):
+   the trained general tracker (see *Learning* below) follows the motion -
+   no retraining, only a grip where the motion starts (step 6's when
+   current, else searched). This is the one-shot test: a recording is never
+   trained on. Shown like step 6; when both exist, *plan stage shows* picks
+   which one the stage replays.
 
    Masks are used as the object's own region: SAM leaves stray specks far
    from the object (on the first SAM 3 recording, in 345 of 411 frames),
    which moved the measured centre by 17-28 px. `src/vision/regions.py`
    keeps the largest piece and the pieces of the same object, and drops the
    rest - when masks are made, measured and drawn.
+
+## Learning: a general tracker
+
+One policy that moves the object along whatever motion it is given - so a
+new demonstration needs no retraining, only its motion (`src/learning`).
+
+1. **Library** (`scripts/build_library.py` -> `data/learning/library.npz`,
+   about 20 min). Starts: where each recording's motion begins, and 5
+   shifted / turned a little around each; the planner searches a grip at
+   each. Motions: 16 generated per start - up to 3 moves, each a 10-45
+   degree turn about a random axis and a shift within 15 mm, minimum-jerk -
+   plus the recordings' own. The planner follows every one; feasible = held
+   throughout, median position error within 15 mm, and turn error within 12
+   degrees or within half of what staying put would leave. The planner is
+   a lower bound on the hand, so this only drops what it could not follow
+   at all.
+2. **Training** (`scripts/train_tracker.py` -> `data/learning/runs/<stamp>/`),
+   by `learning.method`:
+   - `ppo` - rsl_rl's PPO over 2048 copies of the task sim stepped together
+     on the Mac's cores (`mujoco.rollout`): the policy finds its own way by
+     trial and error. On the red-cube recordings it learned to hold the cube
+     but not to roll it (it follows about half as well as the planner).
+   - `planner_teacher` - the planner labels, the policy copies (DAgger,
+     `src/learning/teacher.py`): each round runs every training motion once;
+     at every step the planner plans from that copy's exact state and gives
+     the servo targets it would set; the copy takes the planner's action or,
+     more each round, the policy's own, so the policy also learns to recover
+     from its own mistakes; then the policy is fitted to all labels so far.
+     About 20 min a round (82 ms of planning per step).
+
+   Either way the policy runs at 20 steps a second.
+
+   **On ClearML** (`src/learning/remote.py`, `scripts/clearml_train.py`,
+   the Learning panel's *Train on ClearML*): the same training as a ClearML
+   pipeline on the agent - the Windows PC with the RTX 3090, queue
+   `learning.clearml_queue`, project HandRL. Data goes up as a ClearML
+   dataset (this Mac's library, or the recordings to build it there:
+   `learning.clearml_library`); a *train* step - and a *library* step
+   first, when building there - runs `scripts/clearml_step.py` from the
+   GitHub repository at this commit, with only `requirements-train.txt`
+   (MuJoCo, PyTorch, rsl_rl); the run comes back into
+   `data/learning/runs/` like one trained here. The controller runs on the
+   Mac (one agent runs the steps). The code must be committed and pushed
+   first - the panel says when it is not. The agent's GPU trains the
+   network; the physics, nearly all the time, still runs on its CPU, so
+   the real speed-up needs the simulation on the GPU (MJX / MuJoCo Warp). The policy sees
+   what the real hand will have - joint angles now and a step ago, servo
+   targets, the object's pose as a camera would give it (noisy) - and the
+   goal 0.05, 0.25, 0.5 and 1 s ahead as an offset and a turn from the
+   object (the turn to the goal's nearest look-alike: a cube looks the same
+   24 ways). The critic also sees the object's velocity, fingertip gaps and
+   the physics drawn for that copy. Reward: closeness in position and turn,
+   less target changes and fingertips off the object; dropping it ends the
+   episode. Each episode starts from a library grip, the object just let
+   go. Friction, mass and servo strength are drawn per copy, sensors are
+   noisy, and new targets arrive up to 20 ms late. Trained on the generated
+   motions only; evaluated on every motion, the recordings being the
+   one-shot test. `tensorboard --logdir data/learning/runs` to watch.
 
 ## Assistant
 
@@ -321,8 +422,9 @@ collected whole.
 MuJoCo Studio (MuJoCo's ImGui viewer). Our panels only ever join Studio's
 side panes, so nothing is drawn over the 3D view. A **Robot** panel is docked
 on the right, as a tab beside Studio's Inspector; a **Vision** panel on the
-left, as a tab beside Studio's Options. The menu bar has a menu for each that
-shows or hides its sections.
+left, as a tab beside Studio's Options, and a **Learning** panel as a tab
+beside Vision. The menu bar has a menu for each that shows or hides its
+sections.
 
 **Vision** (left):
 
@@ -362,7 +464,9 @@ shows or hides its sections.
   each object was found in), **3 hands** (*Clean hands*; how many hands,
   labels corrected, phantoms dropped), **4 object motion** (*Measure*; who
   holds each object, and a plot of its angle in the image and in the hand -
-  click the plot to move the player). *sent frames*: the frames Describe sent, numbered as the
+  click the plot to move the player), **5 transfer to sim** (*Fit 3D*,
+  *Send to sim*, *show in sim*), **6 plan in sim** (*Plan*; the grip, held or
+  lost, the error plot). *sent frames*: the frames Describe sent, numbered as the
   model saw them, with the same overlays - click one to show it in the
   player. *task context*: task, goal, objects (hover for the box), hands,
   phases, uncertain.
@@ -371,6 +475,28 @@ shows or hides its sections.
   sends the live camera frame, as a quick look at what the model makes of
   it (not saved). *prompt and limits* (collapsed): the system prompt, max
   tokens, image size, clip frames.
+
+**Learning** (left, beside Vision; see *Learning: a general tracker*):
+
+- **Library** - what the library holds (when made, starts, feasible
+  generated motions by kind, the recordings kept for the test); *Build
+  library*, with progress, time left and *Cancel*.
+- **Train** - *method* (`ppo` or `planner_teacher`) and its settings (PPO:
+  *sim copies*, *rounds*; teacher: *rounds*); *Train*, then
+  progress, *Cancel*, and a live plot of the turn and position error and the
+  exploration, round by round (measured while it explores, so noisier than
+  its test).
+- **Runs** - every run, newest first: its rounds, its test (each recording -
+  never trained on - and the median of the motions it trained on, next to
+  the planner and to holding still; a drop in red), its curve; the radio
+  button picks the run Recordings step 7 uses (`learning.run`); *Test* for a
+  run not yet tested.
+
+Building and training run as processes of their own
+(`src/learning/background.py`), reporting into `data/learning/status.json`:
+the window stays responsive while they use every core, and closing the
+window does not stop a run - *Cancel* does. The same scripts run from a
+terminal show in the panel too.
 
 **Robot** (right):
 
@@ -437,8 +563,9 @@ settings.set("hardware.port", "/dev/cu.usbserial-XYZ"); settings.save()
 | key | what |
 | --- | --- |
 | `robot.urdf` | the robot; sliders, world and motor map all follow it |
-| `world.*` | timestep, mount position and orientation, each hand's colour and emission |
+| `world.*` | timestep, mount position and orientation, each hand's colour and emission (encoder, command, plan) |
 | `object.*` | calibration box: shown, fixed/floating, size, weight, friction, position, colour |
+| `learning.*` | the tracker's training: method, sim copies and rounds (PPO), rounds (teacher); the run step 7 uses (`""` = newest); the ClearML queue and where the library comes from |
 | `control.max_speed` | command slew limit, rad/s |
 | `hardware.port` | `""` none, `"mock"` fake bus that echoes commands, or the U2D2 port |
 | `hardware.*` | baud, write/read rates, current limit, velocity profile, PID |
@@ -458,8 +585,12 @@ All take no arguments and read `settings.json`.
 
 | script | does |
 | --- | --- |
-| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays |
+| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays, the plan stage, the task sim's weld and servos, a grip that holds, the plan step, out-of-date files, generated motions, the tracker's environment |
 | `scripts/render.py` | `renders/world.png` - the world without a window |
+| `scripts/build_library.py` | the tracker's trajectory library from the recordings (about 30 min; also the Learning panel's *Build library*) |
+| `scripts/clearml_train.py` | trains on the ClearML agent as a pipeline and fetches the run (also *Train on ClearML*) |
+| `scripts/clearml_step.py` | one step of that pipeline - run by the agent, not by hand |
+| `scripts/train_tracker.py` | trains the general tracker on this Mac by `learning.*`, then tests it on every motion (also the Learning panel's *Train*) |
 | `scripts/aruco_markers.py` | `renders/aruco_markers.png`: markers 0-5 at `vision.aruco_mm`, 300 dpi, with a 50 mm bar to check the print |
 | `scripts/hw_scan.py` | lists serial ports, pings every motor, prints joint angles. Read-only |
 | `scripts/hw_watch.py` | live encoder readout for checking motor signs and IDs. Read-only |
@@ -499,6 +630,17 @@ src/
   processing/objects.py   the object step: motion in the image and in the hand
   processing/pose3d.py    Fit 3D: hand pose (PnP) and the box fitted to its outline
   processing/transfer.py  Send to sim: onto the robot hand, for the world's ghost
+  processing/plan.py      Plan in sim: grip and follow in the task sim -> plan.npz
+  sim/task.py             the task sim: robot with M288 servos, free object, gravity
+  sim/planner.py          grip search (cross-entropy) and predictive sampling
+  processing/files.py     the later steps' files, and which are out of date
+  processing/track.py     Track with the tracker: the trained policy -> track.npz
+  learning/trajectories.py  the tracker's library: grips, motions, feasibility
+  learning/env.py         TrackEnv: thousands of task sims for rsl_rl's PPO
+  learning/train.py       training methods, progress, evaluation, a trained policy's path
+  learning/teacher.py     the planner teaches the policy (DAgger)
+  learning/background.py  library builds and training as processes, their status
+  learning/remote.py      training on the ClearML agent, as a pipeline
   keys.py                 secrets (API keys, HF_TOKEN): environment, then .env
   assistant/claude.py     Anthropic Messages API
   assistant/openai_api.py OpenAI Responses API
@@ -510,6 +652,7 @@ src/
   viewer/hardware_panel.py  Hardware section
   viewer/camera_panel.py    Camera section (preview, Record)
   viewer/recordings_panel.py Recordings section (playback, Describe)
+  viewer/learning_panel.py  Learning panel (library, training, runs)
   viewer/image.py           an image in a panel (GUI texture rules)
   viewer/assistant_panel.py Assistant section
   app.py                wires it all together

@@ -19,3 +19,8 @@ python-dotenv>=1.0          # reads keys from handlab/.env (gitignored)
 torch>=2.6
 torchvision>=0.21
 transformers>=5.0
+# The general tracker (src/learning): PPO for batched environments, from ETH
+# Zurich's robotics lab; its API moved between majors, so pinned. TensorBoard
+# for its training log.
+rsl-rl-lib==5.5.1
+tensorboard>=2.20

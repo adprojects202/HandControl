@@ -10,7 +10,9 @@
     "encoder_rgba": [0.92, 0.92, 0.95, 1.0],
     "encoder_emission": 0.0,
     "command_rgba": [0.6, 0.28, 0.95, 0.4],
-    "command_emission": 0.0
+    "command_emission": 0.0,
+    "plan_rgba": [0.45, 0.8, 0.55, 1.0],
+    "plan_emission": 0.0
   },
   "control": {
     "max_speed": 8.0
@@ -138,7 +140,7 @@
     "rgba": [0.95, 0.62, 0.2, 1.0]
   },
   "vision": {
-    "enabled": false,
+    "enabled": true,
     "camera_index": 0,
     "capture_width": 640,
     "capture_height": 480,
@@ -151,7 +153,7 @@
     "checkerboard_square_mm": [15.0, 15.0],
     "aruco": true,
     "aruco_dictionary": "DICT_4X4_50",
-    "aruco_mm": 40.0
+    "aruco_mm": 50.0
   },
   "camera_calibration": {
     "MacBook Pro Camera": {
@@ -174,6 +176,15 @@
   },
   "segment": {
     "model": "facebook/sam2.1-hiera-base-plus"
+  },
+  "learning": {
+    "method": "planner_teacher",
+    "envs": 2048,
+    "iterations": 1500,
+    "teacher_rounds": 4,
+    "run": "",
+    "clearml_queue": "windows-rtx3090",
+    "clearml_library": "mine"
   },
   "assistant": {
     "provider": "claude",

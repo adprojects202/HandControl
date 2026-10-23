@@ -13,8 +13,9 @@ Beside it, on threads of their own: the camera tracks the human hand
 (src/vision) and can record it - frames, hands and the robot's state - as an
 episode of a task (src/recording). Steps then run on a recording: the
 assistant has a vision-language model say what task it shows, as structured
-data (src/assistant); segmenting tracks each object it names
-(src/processing). None of it moves the robot.
+data (src/assistant); segmenting tracks each object it names, and later steps
+take its motion into the robot hand's frame and try it in a task sim
+(src/processing, src/sim). None of it moves the robot.
 """
 
 from __future__ import annotations
@@ -31,8 +32,10 @@ from .viewer.camera_panel import CameraSection
 from .viewer.recordings_panel import RecordingsSection
 from .viewer.hardware_panel import HardwareSection
 from .viewer.joints_panel import JointsSection
+from .viewer.learning_panel import LibrarySection, RunsSection, TaskStatus, TrainSection
 from .viewer.panel import SidePanel
 from .viewer.world_panel import WorldSection
+from .learning.background import Background
 from .processing import Job
 from .recording import Recorder
 from .vision import Camera
@@ -51,10 +54,12 @@ class App:
         self.camera.recorder = self.recorder
         self.assistant = Assistant()
         self.processing = Job()             # steps run on a saved recording
+        self.learning = Background()        # library builds and training, as processes
         # Asked for by the GUI, done by tick: the sim thread owns the model.
         self._apply_world = False
         self._reset_object = False
         self._demo = None           # the demo ghost's pose in the mount frame, or None
+        self._plan = None           # the plan stage's frame (World.set_plan), or None
 
     def tick(self, dt):
         if self._apply_world:
@@ -64,6 +69,7 @@ class App:
             self._reset_object = False
             self.world.reset_object()
         self.world.set_demo(self._demo)
+        self.world.set_plan(self._plan)
         command = self.controller.step(dt)
         self.bus.send(command)
         self.world.set_pose("command", command)
@@ -96,6 +102,11 @@ class App:
         quaternion) in the hand mount's frame - or hide it (None)."""
         self._demo = pose
 
+    def show_plan(self, frame):
+        """Show one moment of a planned task on the plan stage beside the hand
+        (World.set_plan), or hide it (None)."""
+        self._plan = frame
+
     def apply_settings(self):
         """Push saved settings into the running parts (after a GUI edit)."""
         self.controller.max_speed = settings.get("control.max_speed")
@@ -111,8 +122,9 @@ class App:
 
     def plugins(self):
         """What runs inside the window: the Robot panel on the right, the
-        Vision panel on the left - both in Studio's side panes, never over
-        the 3D view."""
+        Vision and Learning panels on the left - all in Studio's side panes,
+        never over the 3D view."""
+        status = TaskStatus(self.learning)
         return [
             SidePanel("Robot", [
                 JointsSection(self.robot, self.controller, lambda: self.bus.encoders),
@@ -122,9 +134,15 @@ class App:
             ]),
             SidePanel("Vision", [
                 CameraSection(self.camera, self.recorder, self.apply_vision),
-                RecordingsSection(self.assistant, self.processing, self.show_demo),
+                RecordingsSection(self.assistant, self.processing, self.show_demo,
+                                  self.show_plan),
                 AssistantSection(self.assistant, self.camera),
             ], beside="Options"),
+            SidePanel("Learning", [
+                LibrarySection(status),
+                TrainSection(status),
+                RunsSection(status, Job()),
+            ], beside="Vision"),
         ]
 
     def run(self):

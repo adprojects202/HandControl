@@ -26,6 +26,14 @@ recording's folder:
                 Send to sim: that motion in the robot hand's frame -> sim.npz;
                 with "show in sim", a ghost box in the world follows the
                 player's frame
+    6 Plan in sim
+                the robot hand, with its servos, grips the object and
+                follows that motion in the task sim -> plan.npz; with "show
+                in sim", the plan stage beside the hand replays it at the
+                player's frame
+    7 Track with the tracker
+                the trained tracker (src/learning) follows that motion - no
+                retraining: the one-shot test -> track.npz; shown like step 6
 
 "Sent frames" shows the frames Describe sent, numbered as the model saw
 them, with the same overlays; click one to jump the player there.
@@ -34,6 +42,7 @@ them, with the same overlays; click one to jump the player there.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -44,6 +53,10 @@ from .. import settings
 from ..assistant import context, jpeg
 from ..processing.hands import clean_hands
 from ..processing.objects import measure_objects
+from ..processing.files import PLAN, TRACK, stale
+from ..processing.plan import plan, summary as plan_summary
+from ..learning.train import chosen_run
+from ..processing.track import track as track_with_tracker
 from ..processing.pose3d import POSE3D, edges as box_edges, fit_3d, load as load_pose, project
 from ..processing.transfer import SIM, transfer
 from ..processing.segment import segment
@@ -51,7 +64,7 @@ from ..recording import Episode, episodes
 from ..vision.overlay import draw, object_colour
 from ..vision.tracker import SIDES
 from .assistant_panel import AMBER, draw_context, status
-from .form import RED, SettingsForm
+from .form import GREEN, RED, SettingsForm
 from .image import GuiImage
 
 SHEET_COLUMNS = 4
@@ -69,13 +82,17 @@ MODEL_TIP = ("SAM 2.1 (open) starts from each object's box in the context; "
 class RecordingsSection:
     title = "Recordings"
 
-    def __init__(self, assistant, job, show_demo=lambda pose: None):
+    def __init__(self, assistant, job, show_demo=lambda pose: None,
+                 show_plan=lambda frame: None):
         """`show_demo(pose or None)` puts the sim's demo ghost where a
-        transferred recording's object is at the player's frame."""
+        transferred recording's object is at the player's frame;
+        `show_plan(frame or None)` shows the plan stage at it (World.set_plan)."""
         self.assistant = assistant
         self.job = job                   # processing.Job: one step at a time
         self.show_demo = show_demo
+        self.show_plan = show_plan
         self.in_sim = True
+        self.stage_shows = TRACK             # on the plan stage, when both exist
         self.form = SettingsForm(lambda: None)
         self.viewer = None
         self.player = GuiImage()
@@ -148,6 +165,20 @@ class RecordingsSection:
                    "the World section places the calibration object",
                    done=bool(episode.arrays(SIM)))
         self._sim(episode)
+        imgui.SeparatorText("6  plan in sim")
+        self._step(episode, "plan", "Plan", plan, self._blocked_plan(episode),
+                   "the robot hand, with its servos and the World section's mount, "
+                   "searches for a grip on the object, then follows the motion sent "
+                   "to sim - no training; about 20 s",
+                   done=bool(episode.arrays(PLAN)))
+        frames = {PLAN: self._sim_result(episode, PLAN, "planned")}
+        imgui.SeparatorText("7  track with the tracker")
+        self._step(episode, "track", "Track", track_with_tracker, self._blocked_track(episode),
+                   "the trained tracker follows this motion - no retraining, the one-shot "
+                   "test; the grip is step 6's when current, else searched (about 10 s)",
+                   done=bool(episode.arrays(TRACK)))
+        frames[TRACK] = self._sim_result(episode, TRACK, "tracked")
+        self._stage(frames)
         if self._context is not None:
             self._sent_frames(episode)
             if imgui.TreeNodeEx("task context", int(imgui.TreeNodeFlags.DefaultOpen)):
@@ -176,6 +207,7 @@ class RecordingsSection:
 
     def _open(self, folder):
         self.show_demo(None)
+        self.show_plan(None)
         if self.episode is not None:
             self.episode.close()
         self.episode, self.message = None, ""
@@ -360,18 +392,114 @@ class RecordingsSection:
         imgui.SameLine()
         _, self.in_sim = imgui.Checkbox("show in sim", self.in_sim)
         imgui.SetItemTooltip("a ghost box in the world follows this recording's "
-                             "object at the player's frame")
+                             "object at the player's frame, and the plan stage "
+                             "beside the hand replays the plan")
         note = ("" if str(sim["hand"]) == "Left" else
                 " - recorded with the right hand: not yet mirrored for the robot's "
                 "left hand")
         imgui.TextDisabled(f"{int(sim['valid'].sum())} frames in the robot hand's frame"
                            f"{note}")
+        if SIM in stale(episode):
+            imgui.TextColored(AMBER, f"out of date - {stale(episode)[SIM]}")
         index = self._index
         if self.in_sim and sim["valid"][index]:
             self.show_demo((sim["position"][index].astype(float),
                             sim["quat"][index].astype(float)))
         else:
             self.show_demo(None)
+
+    @staticmethod
+    def _blocked_plan(episode):
+        sim = episode.arrays(SIM)
+        if not sim:
+            return "send to sim first"
+        if SIM in stale(episode):
+            return stale(episode)[SIM]
+        if str(sim["hand"]) != "Left":
+            return "recorded with the right hand: not yet mirrored for the robot's left hand"
+        return ""
+
+    @classmethod
+    def _blocked_track(cls, episode):
+        if cls._blocked_plan(episode):
+            return cls._blocked_plan(episode)
+        if chosen_run() is None:
+            return "no trained tracker yet (Learning panel > Train)"
+        return ""
+
+    def _stage(self, frames):
+        """Which result the plan stage replays - step 6's or step 7's - and
+        show it, or hide the stage."""
+        shown = {name: frame for name, frame in frames.items() if frame is not None}
+        if len(shown) == 2:
+            imgui.TextDisabled("plan stage shows:")
+            for name, label in ((PLAN, "plan"), (TRACK, "tracker")):
+                imgui.SameLine()
+                if imgui.RadioButton(label, self.stage_shows == name):
+                    self.stage_shows = name
+        name = self.stage_shows if self.stage_shows in shown else next(iter(shown), None)
+        self.show_plan(shown[name] if self.in_sim and name else None)
+
+    def _sim_result(self, episode, name, verb):
+        """Step 6's or 7's summary and errors; returns the plan stage's frame
+        at the player's frame, or None."""
+        result = episode.arrays(name)
+        if not result:
+            return None
+        if name in stale(episode):
+            imgui.TextColored(AMBER, f"out of date - {stale(episode)[name]}")
+        mount = settings.get("world.hand_orientation")
+        if str(result["orientation"]) != mount:
+            imgui.TextColored(AMBER, f"{verb} with the hand {result['orientation']}; "
+                                     f"the World section has it {mount} now")
+        if "run" in result:
+            imgui.TextDisabled(f"tracker: run {Path(str(result['run'])).name}, "
+                               f"{result['checkpoint']}")
+        numbers = plan_summary(result)
+        imgui.TextDisabled(f"grip: the object slips {numbers['grip_slip_mm']:.0f} mm and "
+                           f"turns {numbers['grip_turn_deg']:.0f} deg when let go")
+        if numbers["dropped_at"] is None:
+            imgui.TextColored(GREEN, "held it through the whole motion")
+        else:
+            imgui.TextColored(RED, f"lost it {numbers['dropped_at']:.1f} s into the motion")
+        (position, most), (turn, most_turn) = numbers["position_mm"], numbers["turn_deg"]
+        (still, _), (still_turn, _) = numbers["still_position_mm"], numbers["still_turn_deg"]
+        imgui.TextDisabled(f"following: {position:.0f} mm, {turn:.0f} deg off (median; "
+                           f"worst {most:.0f} mm, {most_turn:.0f} deg) - held still it "
+                           f"would be {still:.0f} mm, {still_turn:.0f} deg")
+        valid = episode.arrays(SIM)["valid"]
+        start = float(episode.times[int(np.flatnonzero(valid)[0])]) if valid.any() else 0.0
+        hold = float(result["hold"])
+        following = result["time"] >= hold
+        times = [float(t) for t in result["time"][following] - hold + start]
+        if implot.BeginPlot(f"##{name}", imgui.Vec2(-1, 170)):
+            implot.SetupAxes("s", "mm / deg")
+            for key, label, scale in (("position_error", "off (mm)", 1000),
+                                      ("turn_error", "off (deg)", np.degrees(1)),
+                                      ("still_position_error", "held still: off (mm)", 1000),
+                                      ("still_turn_error", "held still: off (deg)",
+                                       np.degrees(1))):
+                implot.PlotLine(label, times,
+                                [float(v) for v in result[key][following] * scale])
+            self._plot_cursor(episode, 2)
+            implot.EndPlot()
+        imgui.TextDisabled("how far the simulated object is from where the recording "
+                           "has it, and how far it would be had it stayed put")
+        moment = float(episode.times[self._index]) - start + hold
+        row = int(np.clip(np.searchsorted(result["time"], moment), 0, len(result["time"]) - 1))
+        return (result["qpos"][row].astype(float),
+                (result["position"][row].astype(float), result["quat"][row].astype(float)),
+                (result["goal_position"][row].astype(float), result["goal_quat"][row].astype(float)))
+
+    def _plot_cursor(self, episode, line):
+        """The player's frame as a line on the open plot; a click there
+        moves the player."""
+        implot.DragLineX(line, float(episode.times[self._index]), imgui.Vec4(1, 1, 1, 0.8), 1,
+                         int(implot.DragToolFlags.NoInputs))
+        if implot.IsPlotHovered() and imgui.IsMouseClicked(0):
+            self._index = int(np.clip(np.searchsorted(episode.times, implot.GetPlotMousePos().x),
+                                      0, episode.frames - 1))
+            self._playing = False
 
     @staticmethod
     def _blocked_3d(episode):
@@ -419,12 +547,7 @@ class RecordingsSection:
                             [float(v) for v in pose["outline_error_mm"]])
             implot.PlotLine("outline vs marker (deg)", times,
                             [float(v) for v in pose["outline_error_deg"]])
-        implot.DragLineX(1, times[self._index], imgui.Vec4(1, 1, 1, 0.8), 1,
-                         int(implot.DragToolFlags.NoInputs))
-        if implot.IsPlotHovered() and imgui.IsMouseClicked(0):
-            self._index = int(np.clip(np.searchsorted(episode.times, implot.GetPlotMousePos().x),
-                                      0, episode.frames - 1))
-            self._playing = False
+        self._plot_cursor(episode, 1)
         implot.EndPlot()
         imgui.TextDisabled("how far the object has turned in the palm since first "
                            "seen (least over the box's symmetries), and how far its "
@@ -462,13 +585,7 @@ class RecordingsSection:
                             [float(v) for v in np.degrees(motion["turn"][track])])
             implot.PlotLine(f"{name} - turn in hand##{track}", times,
                             [float(v) for v in np.degrees(motion["in_hand_turn"][track])])
-        implot.DragLineX(0, times[self._index], imgui.Vec4(1, 1, 1, 0.8), 1,
-                         int(implot.DragToolFlags.NoInputs))
-        if implot.IsPlotHovered() and imgui.IsMouseClicked(0):
-            seconds = implot.GetPlotMousePos().x
-            self._index = int(np.clip(np.searchsorted(episode.times, seconds),
-                                      0, episode.frames - 1))
-            self._playing = False
+        self._plot_cursor(episode, 0)
         implot.EndPlot()
         imgui.TextDisabled("how far each object has turned since first seen "
                            "(counter-clockwise +), in the image and in the "

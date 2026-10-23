@@ -1,0 +1,9 @@
+# What a training machine needs to run src/learning (the ClearML agent installs
+# this; see src/learning/remote.py) - no camera, vision models or hardware.
+mujoco==3.12.0
+numpy>=2.0
+scipy>=1.13
+torch>=2.6
+rsl-rl-lib==5.5.1
+tensorboard>=2.20
+clearml>=2.1

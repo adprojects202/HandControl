@@ -75,6 +75,10 @@ DEFAULTS = {
         # Command hand: the joint state the software sends out. Translucent.
         "command_rgba": [0.60, 0.28, 0.95, 0.40],
         "command_emission": 0.0,
+        # Plan hand: a planned task replayed, beside the other two - nothing
+        # overlaps it, so it can be opaque.
+        "plan_rgba": [0.45, 0.80, 0.55, 1.0],
+        "plan_emission": 0.0,
     },
     "control": {
         # Slew limit on the command, rad/s. The default is the "smooth"
@@ -197,6 +201,20 @@ DEFAULTS = {
     "segment": {
         "model": "facebook/sam2.1-hiera-small",
     },
+    # Learning a general tracker (src/learning; the Learning panel): a
+    # library of motions built from the recordings, then a policy trained on
+    # it, each run in a process of its own.
+    "learning": {
+        "method": "ppo",        # how the policy learns (src/learning/train.py METHODS)
+        "envs": 2048,           # copies of the task sim stepped together
+        "iterations": 1500,     # ppo rounds; ~5 s each with 2048 copies (M4 Max)
+        "teacher_rounds": 4,    # planner_teacher rounds; ~20 min each (170 motions)
+        "run": "",              # the run Recordings step 7 uses; "" = the newest
+        # Training on the ClearML agent (src/learning/remote.py): its queue, and
+        # whether the library goes up from this Mac ("mine") or is built there.
+        "clearml_queue": "windows-rtx3090",
+        "clearml_library": "mine",
+    },
     # A vision-language model that says what task the frames show, as
     # structured data (src/assistant). API keys are NOT settings: they come
     # from ANTHROPIC_API_KEY / OPENAI_API_KEY, handlab/.env, or a session-only
@@ -253,6 +271,7 @@ RANGES = {
     "world.timestep": (0.0001, 0.05),
     "world.encoder_emission": (0.0, 1.0),
     "world.command_emission": (0.0, 1.0),
+    "world.plan_emission": (0.0, 1.0),
     "control.max_speed": (0.1, 20.0),
     "hardware.command_hz": (1.0, 500.0),
     "hardware.read_hz": (1.0, 100.0),
@@ -289,6 +308,9 @@ RANGES = {
     "viewer.width": (400, 7680),
     "viewer.height": (300, 4320),
     "viewer.max_fps": (10, 240),
+    "learning.envs": (64, 8192),
+    "learning.iterations": (1, 100_000),
+    "learning.teacher_rounds": (1, 50),
 }
 # What a value may be, from a list. Anything else falls back to the default.
 CHOICES = {
@@ -304,6 +326,8 @@ CHOICES = {
                       "facebook/sam2.1-hiera-base-plus", "facebook/sam2.1-hiera-large",
                       "facebook/sam3"),
     "assistant.claude_effort": ("low", "medium", "high", "xhigh", "max"),
+    "learning.method": ("ppo", "planner_teacher"),
+    "learning.clearml_library": ("mine", "build"),
 }
 
 

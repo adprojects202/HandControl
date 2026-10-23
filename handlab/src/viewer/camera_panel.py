@@ -22,10 +22,9 @@ from mujoco.experimental.dear_imgui import dear_imgui as imgui
 from .. import settings
 from ..vision import calibration
 from ..vision.devices import camera_names
-from .form import RED, SettingsForm, row, table
+from .form import GREEN, RED, SettingsForm, row, table
 from .image import GuiImage
 
-GREEN = imgui.Vec4(0.45, 0.85, 0.45, 1.0)
 CALIBRATE_HOW = (
     "Show the checkerboard - printed, or on a phone or tablet screen - so all "
     "of it is in view. Take a picture each time it is found, moving it between "
@@ -190,7 +189,7 @@ class CameraSection:
     def _calibration_window(self, name, frame):
         session = self._session
         imgui.SetNextWindowSize(imgui.Vec2(560, 720), int(imgui.Cond.FirstUseEver))
-        visible, keep_open = imgui.Begin(f"Calibrate camera###calibrate", True)
+        visible, keep_open = imgui.Begin("Calibrate camera###calibrate", True)
         if visible:
             imgui.Text(name)
             if frame is None:

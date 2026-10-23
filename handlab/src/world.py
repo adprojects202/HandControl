@@ -12,11 +12,17 @@ Contents:
     demo           a ghost of the box: a recorded object's motion, moved into
                    the robot hand's frame (processing/transfer.py); parked out
                    of sight until a recording is shown (`set_demo`)
+    plan stage     a planned task replayed (processing/plan.py): the plan
+                   hand, the object as the task sim moved it, and a ghost of
+                   where the recording wanted it - beside the real hand, at
+                   PLAN_OFFSET, so nothing overlaps; parked out of sight until
+                   a plan is shown (`set_plan`)
 
-Both hands stand on one mount, turned by `world.hand_orientation`. They are
-KINEMATIC: posed by writing their joint angles, never driven by physics, and
-gravity-compensated. One opaque, one translucent: see the colour settings for
-why.
+The encoder and command hands stand on one mount, turned by
+`world.hand_orientation`; the plan hand on the same mount moved by
+PLAN_OFFSET. They are KINEMATIC: posed by writing their joint angles, never
+driven by physics, and gravity-compensated. One opaque, one translucent where
+they overlap: see the colour settings for why.
 
 LIVE EDITS. `apply()` takes the world and object settings into the running
 model in place - the mount (each hand's base is a mocap body, so its pose is
@@ -33,6 +39,7 @@ a bit with the other's conaffinity:
     encoder  contype 2, conaffinity 0    pushes the object only - never itself
     command  contype 0, conaffinity 0    a ghost: touches nothing
     demo     contype 0, conaffinity 0    a ghost: touches nothing
+    plan stage (hand, object, goal) contype 0, conaffinity 0: posed, not simulated
 
 FRICTION AND STIFFNESS. MuJoCo gives a contact the larger friction of its two
 geoms - so with the hand at MuJoCo's default 1.0, a lower object value would
@@ -64,14 +71,16 @@ import numpy as np
 from . import robot as robot_module
 from . import settings
 
-HANDS = ("encoder", "command")
+HANDS = ("encoder", "command", "plan")
 # Geom groups. MuJoCo draws groups 0-2 by default and hides 3-5, so
 # everything that should be seen stays in 0-2.
-GROUPS = {"object": 0, "encoder": 1, "command": 2}
+GROUPS = {"object": 0, "encoder": 1, "command": 2, "plan": 2}
 OBJECT = "object"
 DEMO = "demo"
 DEMO_RGBA = [0.35, 0.85, 1.0, 0.35]
-PARKED = np.array([0.0, 0.0, -10.0])     # where the demo ghost waits, out of sight
+PLAN_OBJECT, PLAN_GOAL = "plan_object", "plan_goal"
+PLAN_OFFSET = np.array([0.0, 0.3, 0.0])  # m, world: the plan stage beside the real hand
+PARKED = np.array([0.0, 0.0, -10.0])     # where ghosts wait, out of sight
 
 # The hand mount's rotation (x, y, z Euler, degrees) for each orientation. In
 # the hand's own frame the palm faces +x, the fingers run along +z and the
@@ -117,8 +126,11 @@ class World:
             self._object_qadr, self._object_vadr = joint.qposadr[0], joint.dofadr[0]
             self._object_body = self.model.body(OBJECT).id
             self._object_geom = self.model.geom(OBJECT).id
-        self._demo = self.model.body_mocapid[self.model.body(DEMO).id]
-        self.data.mocap_pos[self._demo] = PARKED
+        self._demo, self._plan_object, self._plan_goal = (
+            self.model.body_mocapid[self.model.body(name).id]
+            for name in (DEMO, PLAN_OBJECT, PLAN_GOAL))
+        self.data.mocap_pos[[self._demo, self._plan_object, self._plan_goal]] = PARKED
+        self._plan_shown = False
         self.object, self.placed = None, None
         return self.apply()
 
@@ -155,6 +167,20 @@ class World:
             return
         position, quat = _compose(self.mount, *pose)
         self.data.mocap_pos[self._demo], self.data.mocap_quat[self._demo] = position, quat
+
+    def set_plan(self, frame):
+        """Show one moment of a plan on the plan stage - `frame` is (joint
+        angles, object pose, goal pose), the poses (position m, quaternion
+        w x y z) in the hand mount's frame - or park the stage with None."""
+        self._plan_shown = frame is not None
+        if frame is None:
+            self.data.mocap_pos[[self._plan_object, self._plan_goal]] = PARKED
+            return
+        q, object_pose, goal_pose = frame
+        self.set_pose("plan", q)
+        stage = self._mount_of("plan")
+        for mocap, pose in ((self._plan_object, object_pose), (self._plan_goal, goal_pose)):
+            self.data.mocap_pos[mocap], self.data.mocap_quat[mocap] = _compose(stage, *pose)
 
     def reset_object(self):
         """Put the object back where it is placed, at rest."""
@@ -195,16 +221,23 @@ class World:
             self.data.qpos[self._qadr[hand]] = q
             self.data.qvel[self._vadr[hand]] = 0.0
         for hand in HANDS:
+            mount = self._mount_of(hand)
             for mocap, (local_pos, local_quat) in zip(self._mocap[hand],
                                                       self._bases[hand].values()):
                 self.data.mocap_pos[mocap], self.data.mocap_quat[mocap] = \
-                    _compose(self.mount, local_pos, local_quat)
+                    _compose(mount, local_pos, local_quat)
         if self.object["mode"] == "fixed":
             self.reset_object()
         mujoco.mj_kinematics(self.model, self.data)
 
     def pose(self, hand):
         return np.array(self.data.qpos[self._qadr[hand]])
+
+    def _mount_of(self, hand):
+        """Where a hand stands: the plan hand beside the others, or parked."""
+        if hand != "plan":
+            return self.mount
+        return (self.mount[0] + (PLAN_OFFSET if self._plan_shown else PARKED), self.mount[1])
 
     def object_position(self):
         """The object's centre in world metres, or None without one."""
@@ -257,7 +290,9 @@ def _build(robot, config, obj):
              for hand in HANDS}
     if obj["enabled"]:
         _add_object(world, obj, config["timestep"])
-    _add_demo(world, obj)
+    _add_ghost(world, DEMO, obj, DEMO_RGBA)
+    _add_ghost(world, PLAN_OBJECT, obj, obj["rgba"])
+    _add_ghost(world, PLAN_GOAL, obj, DEMO_RGBA)
     return world, bases
 
 
@@ -305,12 +340,12 @@ def _add_object(world, obj, timestep):
                   solref=[2.0 * timestep, 1.0])
 
 
-def _add_demo(world, obj):
-    """The demo ghost: a box the size of the calibration object, kinematic
-    (mocap), touching nothing."""
-    body = world.worldbody.add_body(name=DEMO, mocap=True, pos=PARKED)
-    body.add_geom(name=DEMO, type=mujoco.mjtGeom.mjGEOM_BOX,
-                  size=np.array(obj["size_mm"]) / 2000.0, rgba=DEMO_RGBA,
+def _add_ghost(world, name, obj, rgba):
+    """A box the size of the calibration object, kinematic (mocap), touching
+    nothing, parked out of sight."""
+    body = world.worldbody.add_body(name=name, mocap=True, pos=PARKED)
+    body.add_geom(name=name, type=mujoco.mjtGeom.mjGEOM_BOX,
+                  size=np.array(obj["size_mm"]) / 2000.0, rgba=rgba,
                   group=GROUPS["object"], contype=0, conaffinity=0)
 
 

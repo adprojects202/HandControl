@@ -21,6 +21,7 @@ from mujoco.experimental.dear_imgui import dear_imgui as imgui
 from .. import settings
 
 RED = imgui.Vec4(0.95, 0.35, 0.35, 1.0)
+GREEN = imgui.Vec4(0.45, 0.85, 0.45, 1.0)
 
 
 class SettingsForm:
