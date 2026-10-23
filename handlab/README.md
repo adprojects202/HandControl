@@ -260,8 +260,14 @@ Steps on a recording, in order (Recordings section):
    with their ids. Print them with `scripts/aruco_markers.py`.
    *Send to sim* (`src/processing/transfer.py` -> `sim.npz`): that motion in
    the robot hand's frame - the person's palm laid on the robot's, fingers to
-   fingers, palm-out to palm-out, anchored where the World section places
-   the calibration object. With *show in sim*, a translucent cyan ghost box
+   fingers, palm-out to palm-out - placed as the World section's *training*
+   setting (`object.training`) says: *fixed pose*, centred where the World
+   section places the calibration object; or *from the hand*, where the
+   person held it relative to their palm, matched to the robot's palm -
+   along the palm scaled by the palms' lengths (the robot's, 120 mm wrist to
+   middle knuckle, is ~1.7 times a person's), out of it from palm surface to
+   palm surface, so a box resting on the person's palm rests on the robot's.
+   On the red-cube recording the two land within a few mm of each other. With *show in sim*, a translucent cyan ghost box
    in the world (`demo`, touching nothing) follows the player's frame. The
    robot is a left hand; a right-hand demonstration is not mirrored yet.
    A step whose input was made again after it ran says so (amber) and the
@@ -569,7 +575,7 @@ settings.set("hardware.port", "/dev/cu.usbserial-XYZ"); settings.save()
 | --- | --- |
 | `robot.urdf` | the robot; sliders, world and motor map all follow it |
 | `world.*` | timestep, mount position and orientation, each hand's colour and emission (encoder, command, plan) |
-| `object.*` | calibration box: shown, fixed/floating, size, weight, friction, position, colour |
+| `object.*` | calibration box: shown, fixed/floating, size, weight, friction, position, colour; *training*: where Send to sim puts a recording's object (fixed pose / from the hand) |
 | `learning.*` | the tracker's training: method, sim copies and rounds (PPO), rounds (teacher); the run step 7 uses (`""` = newest); the ClearML queue and where the library comes from |
 | `control.max_speed` | command slew limit, rad/s |
 | `hardware.port` | `""` none, `"mock"` fake bus that echoes commands, or the U2D2 port |

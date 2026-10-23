@@ -69,6 +69,12 @@ class WorldSection:
             return
         row("mode", "\n".join(f"{k}: {v}" for k, v in MODES.items()))
         self.form.choice("object.mode")
+        row("training", "where Send to sim (Recordings, step 5) puts a recording's object:\n"
+                        "fixed pose - its motion, centred on the position below\n"
+                        "from the hand - where the person held it relative to their palm, "
+                        "matched to the robot's palm (along the palm scaled to the robot's "
+                        "size, out of the palm palm-surface to palm-surface)")
+        self.form.choice("object.training")
         for key, index, label, unit, tip in SIZE_AND_WEIGHT:
             low, high = settings.limits(key)
             row(f"{label} ({unit})", f"{tip}\n{low:g} - {high:g} {unit}"

@@ -1064,6 +1064,20 @@ def transfer_lays_the_palm_on_the_robot_hand():
     assert world.data.mocap_pos[world._demo][2] < -1, "parked out of sight"
 
 
+@check
+def transfer_from_the_hand_matches_the_robot_palm():
+    from src.processing.transfer import from_hand, robot_palm
+    centre, length, surface = robot_palm()
+    assert 0.09 < length < 0.15 and 0.0 < surface < 0.03, (length, surface)
+    # Resting on the person's palm (the box's half depth out of it): resting
+    # on the robot's, half the box in front of its palm surface.
+    resting = from_hand(np.array([[0.0, 0.0, 0.0275]]), 1.7, centre, surface)[0]
+    assert np.allclose(resting, centre + [surface + 0.0275, 0.0, 0.0])
+    # Along the palm: scaled - up the fingers is the mount's +z, across its -y.
+    moved = from_hand(np.array([[0.01, 0.02, 0.0]]), 2.0, centre, surface)[0] - centre
+    assert np.allclose(moved, [surface, -0.04, 0.02])
+
+
 SYNTH_K = np.array([[326.0, 0, 320], [0, 326.0, 240], [0, 0, 1]])
 
 

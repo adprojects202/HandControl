@@ -152,6 +152,11 @@ DEFAULTS = {
         # Centre, in the hand's mount frame, mm: 8 mm clear of the palm,
         # centred across and along the fingers. Turns with the hand.
         "position_mm": [35.0, 0.0, 70.0],
+        # Where Send to sim (Recordings, step 5) puts a recording's object on
+        # the robot hand: "fixed pose" - its motion, centred on position_mm;
+        # "from the hand" - where the person held it relative to their palm,
+        # matched to the robot's palm (processing/transfer.py).
+        "training": "fixed pose",
         "rgba": [0.95, 0.62, 0.20, 1.0],
     },
     # A camera watching the human hand, and a hand-tracking model run on it
@@ -326,6 +331,7 @@ CHOICES = {
     "world.hand_orientation": ("upright", "palm up", "palm down", "fingers down",
                                "thumb up", "thumb down"),
     "object.mode": ("fixed", "floating"),
+    "object.training": ("fixed pose", "from the hand"),
     "assistant.provider": ("claude", "openai"),
     "vision.aruco_dictionary": ("DICT_4X4_50", "DICT_5X5_100", "DICT_6X6_250",
                                 "DICT_ARUCO_ORIGINAL"),
