@@ -1432,8 +1432,9 @@ def plan_step_saves_its_file_and_out_of_date_files_are_flagged():
 
 @check
 def out_of_date_files_follow_what_they_were_made_from():
-    from src.processing.files import FOLLOW, HAND_SIM, PLAN, POSE3D, SIM, TRACK, stale
-    from src.recording.episode import HANDS_CLEAN
+    from src.processing.files import FOLLOW, HAND_SIM, HANDS_CLEAN, PLAN, POSE3D, SIM, TRACK, stale
+    from src.recording import episode as recording
+    assert HANDS_CLEAN == recording.HANDS_CLEAN
     # Placed as the World section places the object now, whatever it says.
     placed = {"placement": np.array(settings.get("object.training")),
               "position_mm": np.array(settings.get("object.position_mm"), float)}

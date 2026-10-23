@@ -10,7 +10,10 @@ pose).
 import numpy as np
 
 from .. import settings
-from ..recording.episode import HANDS_CLEAN
+
+# The hands step's file (recording/episode.py's HANDS_CLEAN), named here and
+# not imported: the GPU training imports this module and has no OpenCV.
+HANDS_CLEAN = "hands_clean.npz"
 
 POSE3D, SIM, PLAN, TRACK = "pose3d.npz", "sim.npz", "plan.npz", "track.npz"
 HAND_SIM, FOLLOW = "hand_sim.npz", "follow.npz"
