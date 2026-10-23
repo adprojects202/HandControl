@@ -26,6 +26,7 @@ import copy
 import json
 import os
 import re
+from pathlib import Path
 
 from .paths import SETTINGS_FILE
 
@@ -529,6 +530,13 @@ def current():
     if _current is None:
         _current = Settings()
     return _current
+
+
+def use(path):
+    """From now on, the settings in `path` - another machine's settings.json
+    (a ClearML training step gets this Mac's)."""
+    global _current
+    _current = Settings(Path(path))
 
 
 def get(key):

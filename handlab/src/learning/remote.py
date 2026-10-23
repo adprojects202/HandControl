@@ -11,7 +11,10 @@ ClearML pipeline, started from this Mac:
 
 Each step is scripts/clearml_step.py from the GitHub repository at this
 very commit, so the work must be committed and pushed first (`blocked`
-says so). The agent installs requirements-train.txt - MuJoCo, PyTorch,
+says so). settings.json is not: it changes as the window is used, so this
+Mac's current one goes along with each step as a ClearML configuration
+("settings") - the agent trains with exactly these hand, object and motor
+settings. The agent installs requirements-train.txt - MuJoCo, PyTorch,
 rsl_rl, no camera stack. Data goes up as ClearML datasets: this Mac's
 library, or each recording's meta.json, frames.npz, pose3d.npz and sim.npz.
 
@@ -52,7 +55,7 @@ POLL_S = 15
 def blocked(where=ROOT):
     """Why the pipeline cannot run the code at `where`, or "": the agent
     clones the repository, so what it runs must be committed and pushed."""
-    git = _git("status", "--porcelain", "--", ".", cwd=where)
+    git = _git("status", "--porcelain", "--", ".", ":!settings.json", cwd=where)
     if git is None:
         return "not a git repository"
     if git.strip():
@@ -92,9 +95,11 @@ def run(progress=lambda done, total, text="": None):
 
     training = {f"handlab/{key}": config[key]
                 for key in ("method", "envs", "iterations", "teacher_rounds")}
+    here_settings = {"settings": settings.current().path.read_text()}
     pipe = PipelineController(name="handlab tracker", project=PROJECT, add_run_number=True)
     if build:
         pipe.add_step("library", base_task_id=step_task("library"), execution_queue=queue,
+                      configuration_overrides=here_settings,
                       parameter_override={"handlab/step": "library",
                                           "handlab/recordings_dataset": data})
         training["handlab/library_task"] = "${library.id}"
@@ -102,6 +107,7 @@ def run(progress=lambda done, total, text="": None):
         training["handlab/library_dataset"] = data
     pipe.add_step("train", base_task_id=step_task("train"), execution_queue=queue,
                   parents=["library"] if build else None,
+                  configuration_overrides=here_settings,
                   parameter_override={"handlab/step": "train", **training})
     finished = threading.Event()
     failure = []

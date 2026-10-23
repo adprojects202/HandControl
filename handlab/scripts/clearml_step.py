@@ -7,12 +7,15 @@ src/learning/remote.py). Its parameters ("handlab" section) say which:
               library step's artifact, or a library dataset), test it, and
               upload the run folder as the "run" artifact
 
-Not for running by hand: the pipeline sets the parameters.
+Not for running by hand: the pipeline sets the parameters, and gives the
+Mac's settings.json as the "settings" configuration - used here instead of
+the repository's.
 """
 
 import json
 import shutil
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -32,6 +35,11 @@ PARAMETERS = {"step": "train", "recordings_dataset": "", "library_dataset": "",
 def main():
     task = Task.init(project_name="HandRL", task_name="handlab step", reuse_last_task_id=False)
     params = task.connect(dict(PARAMETERS), name="handlab")
+    sent = task.get_configuration_object("settings")
+    if sent:
+        path = Path(tempfile.mkdtemp()) / "settings.json"
+        path.write_text(sent)
+        settings.use(path)
     _mirror_progress(task)
     try:
         if params["step"] == "library":
