@@ -439,13 +439,16 @@ class RecordingsSection:
 
     def _stage(self, episode, frames):
         """Which result the plan stage replays - step 6's or step 7's - and
-        show it, or hide the stage: hidden too while Plan or Run works on
-        this recording, the old result no longer the scene."""
+        show it, or hide the stage: a result out of date is not shown (it
+        was made for where the object was), nor anything while Plan or Run
+        works on this recording."""
         if self.job.busy and self.job.label in (f"plan {episode.folder}",
                                                 f"track {episode.folder}"):
             self.show_plan(None)
             return
-        shown = {name: frame for name, frame in frames.items() if frame is not None}
+        out_of_date = stale(episode)              # made for another placement or motion
+        shown = {name: frame for name, frame in frames.items()
+                 if frame is not None and name not in out_of_date}
         if len(shown) == 2:
             imgui.TextDisabled("plan stage shows:")
             for name, label in ((PLAN, "plan"), (TRACK, "trained policy")):
