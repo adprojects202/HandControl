@@ -111,8 +111,9 @@ def run(progress=lambda done, total, text="": None):
                        commit=commit, script=f"{here}/{STEP_SCRIPT}", working_directory=here,
                        requirements_file=str(ROOT / REQUIREMENTS))
     pipe = PipelineController(name="handlab tracker gpu", project=PROJECT, add_run_number=True)
+    # The step task itself runs (not a copy of it), so no draft is left behind.
     pipe.add_step("train_gpu", base_task_id=step.id, execution_queue=config["clearml_queue"],
-                  parameter_override={"handlab/bundle": dataset.id,
+                  clone_base_task=False, parameter_override={"handlab/bundle": dataset.id,
                                       "handlab/envs": config["gpu_envs"],
                                       "handlab/iterations": config["iterations"]})
     finished, failure = threading.Event(), []
