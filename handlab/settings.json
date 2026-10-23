@@ -184,7 +184,7 @@
     "teacher_rounds": 4,
     "run": "",
     "clearml_queue": "windows-rtx3090",
-    "clearml_library": "mine"
+    "gpu_envs": 8192
   },
   "assistant": {
     "provider": "claude",
