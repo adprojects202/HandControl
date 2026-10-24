@@ -84,7 +84,7 @@ model loads. To add something to the world, add it in `_build`.
 
 ## Live hand control
 
-*Start live* (Robot panel; `src/learning/live.py`) turns the camera on and
+*Start live* (Vision panel, under Camera; `src/learning/live.py`) turns the camera on and
 has the trained hand-motion policy follow your hand, as you move it: a
 thread at the policy's 20 Hz takes the newest frame's hand (the left one
 when both are seen - the robot is a left hand - a right one mirrored onto
@@ -557,6 +557,9 @@ has a menu for each that shows or hides its sections.
 
   Below the status: *Record* / *Stop* and the *task* name; while recording,
   its length and frame count, then where it was saved.
+- **Live** - instead of recording: *Start live* / *Stop live* and the
+  hand-motion run - the robot hand follows your hand as the camera sees it
+  (see *Live hand control*).
 - **Recordings** - pick a recording (rescanned when the list opens; Real to
   Sim shows the same one); it plays at recorded speed (mirrored like the
   preview, if *mirror* is on); *Play*/*Pause* and a frame slider; switches
@@ -612,8 +615,6 @@ terminal show in the panel too.
 
 **Robot** (right):
 
-- **Live** - *Start live* / *Stop live* and the hand-motion run: the robot
-  hand follows your hand as the camera sees it (see *Live hand control*).
 - **Joints** - one slider per URDF joint, grouped by finger, ranges from the
   URDF limits, with the robot's encoder reading beside each. *Zero all* and
   *Match robot* (targets := where the real hand is). Off while Live runs.

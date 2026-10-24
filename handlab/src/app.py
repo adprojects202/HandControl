@@ -20,8 +20,8 @@ frame and has the robot do it in the sim (src/processing, src/sim). None of
 it moves the robot; Live only sets the targets, which reach the hardware
 only while streaming.
 
-The panels: Robot on the right (Live, Joints, World, Hardware); Vision
-(Camera, Recordings), Real to Sim and Learning on the left. Recordings and
+The panels: Robot on the right (Joints, World, Hardware); Vision (Camera,
+Live, Recordings), Real to Sim and Learning on the left. Recordings and
 Real to Sim show the same recording at the same frame (viewer/playback.py).
 """
 
@@ -162,7 +162,6 @@ class App:
         self._stop_live = live.stop
         return [
             SidePanel("Robot", [
-                live,
                 JointsSection(self.robot, self.controller, lambda: self.bus.encoders,
                               live=lambda: self.live.running),
                 WorldSection(self.apply_world, self.reset_object),
@@ -172,6 +171,7 @@ class App:
             SidePanel("Vision", [
                 CameraSection(self.camera, self.recorder, self.apply_vision,
                               self.back_camera),
+                live,
                 RecordingsSection(self.assistant, AssistantSection(self.assistant, self.camera),
                                   self.processing, playback),
             ], beside="Options"),

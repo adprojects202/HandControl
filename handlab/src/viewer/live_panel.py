@@ -1,6 +1,7 @@
 """Live: the robot hand following your hand, as the camera sees it - the
 trained hand-motion policy driving the joint targets (learning/live.py)
-instead of the sliders.
+instead of the sliders. In the Vision panel, under Camera: live instead of
+recording.
 
 *Start live* turns the camera on (and *Stop live* off again, if it was off)
 and follows the run picked beside it (Learning, learn: hand motion). The
