@@ -231,8 +231,9 @@ def follow(folder, library, motions, checkpoint=None):
     position_error (T,) m, turn_error (T,) rad, dropped}."""
     env = TrackEnv(library, envs=len(motions), motions=motions, randomize=False, cycle=True)
     runner = OnPolicyRunner(env, copy.deepcopy(CONFIG), log_dir=None, device="cpu")
+    # map_location: a run trained on the GPU saved its tensors there.
     runner.load(str(checkpoint or latest_checkpoint(folder)), load_cfg={"actor": True},
-                strict=True)
+                strict=True, map_location="cpu")
     policy = runner.get_inference_policy()
     count = len(motions)
     finished, dropped = np.zeros(count, bool), np.zeros(count, bool)

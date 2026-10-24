@@ -49,6 +49,7 @@ PROJECT = "HandRL"
 STEP_SCRIPT = "scripts/clearml_gpu_step.py"
 REQUIREMENTS = "requirements-gpu.txt"
 POLL_S = 15
+FETCH_ATTEMPTS = 3
 
 
 def blocked(where=ROOT):
@@ -159,8 +160,9 @@ def _mirror(pipe, progress):
             progress(0, 100, f"{name}: queued for the agent")
             continue
         scalars = task.get_last_scalar_metrics()
-        off = [scalars.get(key, {}).get(key, {}).get("last")
-               for key in ("/track/turn_deg", "/hand/angle_deg")]
+        # ClearML files a tag "/hand/angle_deg" as title "_hand", series "angle_deg".
+        off = [scalars.get(title, {}).get(series, {}).get("last")
+               for title, series in (("_track", "turn_deg"), ("_hand", "angle_deg"))]
         off = [value for value in off if value is not None]
         note = f", {off[0]:.1f} deg off while training" if off else ""
         progress(task.get_progress() or 0, 100, f"{name} on the agent: {status}{note}")
@@ -195,9 +197,18 @@ def _stop(pipe):
     pipe.stop(mark_failed=False, mark_aborted=True)
 
 
-def _fetch(task):
-    """The step's run folder, unpacked into data/learning/runs."""
-    target = unpack(Path(task.artifacts["run"].get_local_copy(extract_archive=False)))
+def _fetch(task, attempts=FETCH_ATTEMPTS):
+    """The step's run folder, unpacked into data/learning/runs; the download
+    tried again when it fails (ClearML's file server can stall)."""
+    for attempt in range(1, attempts + 1):
+        try:
+            archive = task.artifacts["run"].get_local_copy(extract_archive=False,
+                                                           raise_on_error=True)
+            break
+        except ValueError:
+            if attempt == attempts:
+                raise
+    target = unpack(Path(archive))
     (target / "clearml.txt").write_text(f"trained on ClearML: task {task.id}\n"
                                         f"{task.get_output_log_web_page()}\n")
     return target

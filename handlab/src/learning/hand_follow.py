@@ -99,8 +99,9 @@ def follow(features, folder, checkpoint=None):
 
     env = CpuHandEnv(features)
     runner = OnPolicyRunner(env, copy.deepcopy(CONFIG), log_dir=None, device="cpu")
+    # map_location: a run trained on the GPU saved its tensors there.
     runner.load(str(checkpoint or latest_checkpoint(folder)), load_cfg={"actor": True},
-                strict=True)
+                strict=True, map_location="cpu")
     policy = runner.get_inference_policy()
     rest = env.shape_now()
     joints, rows, still = [env.joints()], [errors(rest, env.goal())], [errors(rest, env.goal())]

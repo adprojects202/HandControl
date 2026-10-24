@@ -62,9 +62,22 @@ def main():
     if module is gpu_hand:                     # the hand library goes with the run
         shutil.copy(bundle / "bundle.json", folder / "bundle.json")
     (folder / "evaluation.json").write_text(json.dumps(results, indent=2))
-    archive = shutil.make_archive(str(folder), "zip", root_dir=folder.parent, base_dir=folder.name)
-    task.upload_artifact("run", artifact_object=archive, wait_on_upload=True)
+    task.upload_artifact("run", artifact_object=_pack(folder), wait_on_upload=True)
     task.set_progress(100)
+
+
+def _pack(folder):
+    """The run as the Mac needs it, zipped: everything but the earlier
+    checkpoints and the TensorBoard log (ClearML keeps the scalars) - a few
+    MB, where all of it is ~100 MB and stalls on the way down."""
+    last = train.latest_checkpoint(folder)
+    packed = folder.parent / "packed" / folder.name
+    packed.mkdir(parents=True)
+    for path in folder.iterdir():
+        if path.is_file() and not path.name.startswith("events.out") and \
+                (not path.name.startswith("model_") or path == last):
+            shutil.copy(path, packed / path.name)
+    return shutil.make_archive(str(packed), "zip", root_dir=packed.parent, base_dir=folder.name)
 
 
 def _mirror_progress(task):
