@@ -3,7 +3,8 @@ assistant, window.
 
 The control loop, once per sim tick:
 
-    sliders -> controller.targets
+    sliders (or Live: the hand-motion policy following the camera's hand)
+                                     -> controller.targets
     controller.step(dt) -> command ---> purple command hand
                                    \\--> hardware bus (written when armed + sending)
     hardware bus encoders ----------> white encoder hand
@@ -13,9 +14,15 @@ Beside it, on threads of their own: the camera tracks the human hand
 (src/vision) and can record it - frames, hands and the robot's state - as an
 episode of a task (src/recording). Steps then run on a recording: the
 assistant has a vision-language model say what task it shows, as structured
-data (src/assistant); segmenting tracks each object it names, and later steps
-take its motion into the robot hand's frame and try it in a task sim
-(src/processing, src/sim). None of it moves the robot.
+data (src/assistant); segmenting tracks each object it names (Recordings,
+steps 1-4). Real to Sim takes the hand and the object into the robot hand's
+frame and has the robot do it in the sim (src/processing, src/sim). None of
+it moves the robot; Live only sets the targets, which reach the hardware
+only while streaming.
+
+The panels: Robot on the right (Live, Joints, World, Hardware); Vision
+(Camera, Recordings), Real to Sim and Learning on the left. Recordings and
+Real to Sim show the same recording at the same frame (viewer/playback.py).
 """
 
 from __future__ import annotations
@@ -29,13 +36,17 @@ from .hardware import HardwareBus
 from .viewer import studio
 from .viewer.assistant_panel import AssistantSection
 from .viewer.camera_panel import CameraSection
-from .viewer.recordings_panel import RecordingsSection
 from .viewer.hardware_panel import HardwareSection
 from .viewer.joints_panel import JointsSection
 from .viewer.learning_panel import LibrarySection, RunsSection, TaskStatus, TrainSection
+from .viewer.live_panel import LiveSection
 from .viewer.panel import SidePanel
+from .viewer.playback import Playback
+from .viewer.real_to_sim_panel import RealToSimSection
+from .viewer.recordings_panel import RecordingsSection
 from .viewer.world_panel import WorldSection
 from .learning.background import Background
+from .learning.live import LiveHand
 from .processing import Job
 from .recording import Recorder
 from .vision import Camera
@@ -56,12 +67,14 @@ class App:
         self.assistant = Assistant()
         self.processing = Job()             # steps run on a saved recording
         self.learning = Background()        # library builds and training, as processes
+        self.live = LiveHand(self.camera, self.controller.set_targets, self.robot.names)
         # Asked for by the GUI, done by tick: the sim thread owns the model.
         self._apply_world = False
         self._reset_object = False
         self._demo = None           # the demo ghost's pose in the mount frame, or None
         self._plan = None           # the plan stage's frame (World.set_plan), or None
         self._skeleton = None       # a person's hand on the stage (World.set_skeleton), or None
+        self._stop_live = None      # Live's stop, once the panels are made
 
     def tick(self, dt):
         if self._apply_world:
@@ -110,6 +123,10 @@ class App:
         (World.set_plan), or hide it (None)."""
         self._plan = frame
 
+    def hide_recording(self):
+        """Take a recording's object, plan stage and hand out of the sim."""
+        self._demo = self._plan = self._skeleton = None
+
     def show_skeleton(self, points):
         """Show a person's hand on the plan stage - its landmarks (21, 3) m
         in the hand mount's frame - or hide it (None)."""
@@ -137,12 +154,17 @@ class App:
 
     def plugins(self):
         """What runs inside the window: the Robot panel on the right, the
-        Vision and Learning panels on the left - all in Studio's side panes,
-        never over the 3D view."""
+        Vision, Real to Sim and Learning panels on the left - all in Studio's
+        side panes, never over the 3D view."""
         status = TaskStatus(self.learning)
+        playback = Playback(on_open=lambda episode: self.hide_recording())
+        live = LiveSection(self.live, self.apply_vision)
+        self._stop_live = live.stop
         return [
             SidePanel("Robot", [
-                JointsSection(self.robot, self.controller, lambda: self.bus.encoders),
+                live,
+                JointsSection(self.robot, self.controller, lambda: self.bus.encoders,
+                              live=lambda: self.live.running),
                 WorldSection(self.apply_world, self.reset_object),
                 HardwareSection(self.robot, self.bus, self.start_streaming,
                                 self.apply_settings),
@@ -150,15 +172,18 @@ class App:
             SidePanel("Vision", [
                 CameraSection(self.camera, self.recorder, self.apply_vision,
                               self.back_camera),
-                RecordingsSection(self.assistant, self.processing, self.show_demo,
-                                  self.show_plan, self.show_skeleton),
-                AssistantSection(self.assistant, self.camera),
+                RecordingsSection(self.assistant, AssistantSection(self.assistant, self.camera),
+                                  self.processing, playback),
             ], beside="Options"),
+            SidePanel("Real to Sim", [
+                RealToSimSection(self.processing, playback, self.zero, self.show_demo,
+                                 self.show_plan, self.show_skeleton),
+            ], beside="Vision"),
             SidePanel("Learning", [
                 LibrarySection(status),
                 TrainSection(status),
                 RunsSection(status, Job()),
-            ], beside="Vision"),
+            ], beside="Real to Sim"),
         ]
 
     def run(self):
@@ -167,6 +192,8 @@ class App:
         try:
             studio.run(self.world, self.tick, self.plugins())
         finally:
+            if self._stop_live is not None:
+                self._stop_live()
             self.recorder.stop()
             self.camera.close()
             self.back_camera.close()

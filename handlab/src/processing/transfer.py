@@ -1,26 +1,28 @@
 """Transfer to sim: the person's hand and the recorded object's motion in
 the robot hand's frame -> hand_sim.npz and sim.npz. The world shows them -
 the hand as a skeleton on the plan stage (World.set_skeleton), the object as
-a ghost box (World.set_demo) - following the Recordings player.
+a ghost box (World.set_demo) - following the frame on show (Real to Sim).
 
-    send_to_sim(episode, progress)      # Send to sim: both, as far as they can be
     transfer_hand(episode, progress)    # the hand -> hand_sim.npz
     transfer(episode, progress)         # the object -> sim.npz
+
+The Real to Sim panel sends both by itself whenever either is missing or out
+of date; Follow, Plan and Run send afresh first too (current_hand in
+follow.py, current_sim here).
 
 THE HAND needs only the hands step: the hand holding the object (when the
 3D step found one), else the one seen most, its 21 landmarks in its palm's
 frame and in palm lengths (learning/handmotion.py) laid on the robot's palm
 - wrist on wrist, knuckles towards knuckles, palm lengths scaled to the
 robot's - a right hand mirrored onto the robot's left. Its shape there is
-what the hand-motion policy follows (step 6).
+what the hand-motion policy follows (processing/follow.py).
 
     hand_sim.npz   skeleton (N, 21, 3) m: the landmarks in the robot hand's
                    mount frame (NaN where the hand was not seen); features
                    (N, handmotion.FEATURES): its shape; present (N,); side;
                    time (N,) s; made
 
-THE OBJECT needs the 3D step.
-Needs the 3D step (pose3d.npz). The person's palm frame (x up the fingers,
+THE OBJECT needs the 3D step (pose3d.npz). The person's palm frame (x up the fingers,
 z out of the palm) is laid on the robot hand's mount frame (World: x out of
 the palm, y across it, z along the fingers): fingers to fingers, palm-out to
 palm-out (TO_MOUNT). The rotation is the person's. Where it goes,
@@ -119,15 +121,6 @@ def transfer(episode, progress=lambda done, total, text="": None):
     return {"frames": int(valid.sum()), "hand": SIDES[slot], "placement": placement,
             **({"scale": round(float(scale), 3)} if np.isfinite(scale) else {}),
             "mirrored_needed": SIDES[slot] != ROBOT_HAND}
-
-
-def send_to_sim(episode, progress=lambda done, total, text="": None):
-    """Step 5's Send to sim: the hand, and the object when the 3D step has
-    fitted it. Returns their summaries."""
-    out = {"hand": transfer_hand(episode, progress)}
-    if load(episode):
-        out["object"] = transfer(episode, progress)
-    return out
 
 
 def transfer_hand(episode, progress=lambda done, total, text="": None):

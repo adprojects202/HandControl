@@ -152,7 +152,7 @@ DEFAULTS = {
         # Centre, in the hand's mount frame, mm: 8 mm clear of the palm,
         # centred across and along the fingers. Turns with the hand.
         "position_mm": [35.0, 0.0, 70.0],
-        # Where Send to sim (Recordings, step 5) puts a recording's object on
+        # Where Real to Sim (its placement) puts a recording's object on
         # the robot hand: "fixed pose" - its motion, centred on position_mm;
         # "from the hand" - where the person held it relative to their palm,
         # matched to the robot's palm (processing/transfer.py).
@@ -223,8 +223,8 @@ DEFAULTS = {
         "envs": 2048,           # copies of the task sim stepped together
         "iterations": 1500,     # ppo rounds; ~5 s each with 2048 copies (M4 Max)
         "teacher_rounds": 4,    # planner_teacher rounds; ~20 min each (170 motions)
-        "run": "",              # the run Recordings step 8 uses; "" = the newest
-        "hand_run": "",         # the hand-motion run Recordings step 6 uses; "" = the newest
+        "run": "",              # the tracker run Real to Sim's Run policy uses; "" = the newest
+        "hand_run": "",         # the hand-motion run Follow and Live use; "" = the newest
         # Training on the ClearML agent's GPU (src/learning/remote.py, gpu.py):
         # its queue, and how many task sims the GPU steps together.
         "clearml_queue": "windows-rtx3090",

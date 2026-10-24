@@ -3,10 +3,15 @@ person's hand in the hand sim, on the CPU.
 
     run = follow(features, folder)      # features (T, FEATURES) at RATE
 
-The policy sees what it saw on the GPU (gpu_hand.observation): the joints,
+    env = CpuHandEnv(features)          # or, live: one shape, aimed again each step
+    policy = load_policy(env, folder)
+    env.aim(shape); obs, *_ = env.step(policy(env.get_observations()))
+
+The policy sees what it saw on the GPU (handmotion.observation): the joints,
 the joints a step before, the servo targets, the robot's shape now, and the
 shapes FUTURE_STEPS ahead less the shape now - nominal physics, no noise.
-The hand starts at rest.
+The hand starts at rest. Live (learning/live.py) only the shape now is
+known: aimed at it, every shape ahead is that one.
 """
 
 from __future__ import annotations
@@ -66,6 +71,13 @@ class CpuHandEnv(VecEnv):
         self._obs = self._observe()
         return self._obs, torch.zeros(1), done, {"time_outs": done, "log": {}}
 
+    def aim(self, shape_):
+        """Follow one shape (FEATURES,) from now on - every shape ahead the
+        same - as live, where only the shape now is known."""
+        self.features = torch.as_tensor(np.asarray(shape_), dtype=torch.float32)[None]
+        self.max_episode_length = 1
+        self._obs = self._observe()
+
     def joints(self):
         return self.data.qpos[self.joint_qpos].copy()
 
@@ -87,22 +99,28 @@ class CpuHandEnv(VecEnv):
         return TensorDict({"policy": policy, "privileged": privileged}, batch_size=[1])
 
 
+def load_policy(env, folder, checkpoint=None):
+    """Run `folder`'s policy (its last checkpoint, or `checkpoint`), for
+    `env`: observations in, actions out."""
+    from rsl_rl.runners import OnPolicyRunner
+
+    from .train import CONFIG, latest_checkpoint
+
+    runner = OnPolicyRunner(env, copy.deepcopy(CONFIG), log_dir=None, device="cpu")
+    # map_location: a run trained on the GPU saved its tensors there.
+    runner.load(str(checkpoint or latest_checkpoint(folder)), load_cfg={"actor": True},
+                strict=True, map_location="cpu")
+    return runner.get_inference_policy()
+
+
 def follow(features, folder, checkpoint=None):
     """The policy of run `folder` following `features` (T, FEATURES) at
     RATE from rest. Returns {joints (T, J) rad - frame 0 at rest - and
     joint_names; angle, tip, pinch (T,): the shape's errors (rad, palm
     lengths), and still_angle, still_tip, still_pinch: holding the rest
     pose's; palm_length m}."""
-    from rsl_rl.runners import OnPolicyRunner
-
-    from .train import CONFIG, latest_checkpoint
-
     env = CpuHandEnv(features)
-    runner = OnPolicyRunner(env, copy.deepcopy(CONFIG), log_dir=None, device="cpu")
-    # map_location: a run trained on the GPU saved its tensors there.
-    runner.load(str(checkpoint or latest_checkpoint(folder)), load_cfg={"actor": True},
-                strict=True, map_location="cpu")
-    policy = runner.get_inference_policy()
+    policy = load_policy(env, folder, checkpoint)
     rest = env.shape_now()
     joints, rows, still = [env.joints()], [errors(rest, env.goal())], [errors(rest, env.goal())]
     obs = env.get_observations()

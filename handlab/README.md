@@ -82,6 +82,21 @@ and friction. Showing/hiding or resizing the object rebuilds the model, which th
 window shows as a brief reload - Studio's renderer reads geometry only when a
 model loads. To add something to the world, add it in `_build`.
 
+## Live hand control
+
+*Start live* (Robot panel; `src/learning/live.py`) turns the camera on and
+has the trained hand-motion policy follow your hand, as you move it: a
+thread at the policy's 20 Hz takes the newest frame's hand (the left one
+when both are seen - the robot is a left hand - a right one mirrored onto
+it), aims the policy at its shape, steps a hand sim on this Mac's CPU, and
+sets the joint targets to its servo targets - the purple command hand. With
+no hand in view the hand holds. Live, only the shape now is known, so the
+policy is aimed at it for every step ahead: it follows a little later than
+on a recording. Nothing moves the real hand unless *Send* is on (Hardware),
+and then slew-limited by `control.max_speed` as always. *Stop live* turns
+the camera off again if Live turned it on. Tried on a recorded hand played
+as a camera: 20 Hz, ~15 degrees off the hand's shape.
+
 ## The control loop
 
 ```
@@ -174,16 +189,20 @@ data/tasks/<task>/<YYYYmmdd-HHMMSS>/     (data/ is not committed)
                 area per frame, the prompt used, the model and when
   hands_clean.npz  the hands step: one followed hand per slot, filled, smoothed
   object.npz    the object step: centre, area, angle, contact, in-hand motion
-  pose3d.npz    transfer, Fit 3D: palm and object poses in metres; the object in the palm
-  sim.npz       transfer, Send to sim: the object's motion in the robot hand's frame
-  plan.npz      plan in sim: the grip, the hand's joints and the simulated object, errors
+  pose3d.npz    Real to Sim, Fit 3D: palm and object poses in metres; the object in the palm
+  hand_sim.npz  Real to Sim: the person's hand laid on the robot's palm, and its shape
+  sim.npz       Real to Sim: the object's motion in the robot hand's frame
+  follow.npz    Real to Sim, Follow: the hand-motion policy's joints, its errors
+  plan.npz      Real to Sim, Plan: the grip, the hand's joints and the simulated object, errors
+  track.npz     Real to Sim, Run policy: as plan.npz, from the trained tracker
 ```
 
 `meta.json` is written with `"complete": false` when recording starts and
 finished when it stops, so a recording cut short says so. The layout lives
 in `src/recording/episode.py`.
 
-Steps on a recording, in order (Recordings section):
+Steps on a recording, in order (Recordings section) - what the person did, from the
+video; bringing it into the sim is *Real to Sim*'s:
 
 1. **Describe** - the task context, from a clip of it (see Assistant).
 2. **Segment** - a mask of each object the context names, in every frame
@@ -227,117 +246,129 @@ Steps on a recording, in order (Recordings section):
    change of area. Plotted under the step; the plot's cursor is the
    player's frame, and a click on the plot moves it there.
 
-5. **Transfer to sim** - two parts.
-   *Fit 3D* (`src/processing/pose3d.py` -> `pose3d.npz`): the hands and the
-   object in metres. The hand: MediaPipe's 3D hand shape fitted to its image
-   points with the camera's calibration (OpenCV solvePnP), at one size for
-   the whole recording (MediaPipe's per-frame size guess wobbled 85-102 mm,
-   which swung the distance by 5 cm); a palm frame from the wrist and
-   knuckles (x up the fingers, z out of the palm). The object: a box of the
-   World section's `object.size_mm`, posed so its projected outline covers
-   the mask - its image size gives the distance, its shape the rotation -
-   found by searching 2000 orientations on the first frame (and whenever a
-   frame fits worse than 0.95) and refined frame to frame. A box looks the
-   same turned onto any like face (a cube: 24 ways), so each frame keeps the
-   equal pose nearest the last; near square-on an outline hides up to ~10
-   degrees of tilt. Both are smoothed (median of 9 frames). With a still hand
-   (palm moving under 3 cm across the image) the palm's median pose is used,
-   since its orientation is the least sure thing while the object hides it.
-   The object's known size also measures the hand: `hand_scale`. On test
-   cubes: within 1 degree and 5 mm (depth up to ~4%). On the red-cube
-   recording: outline fit 0.97, the cube's centre 20-32 mm out of the palm
-   (a 55 mm cube resting on it: 27.5+), turning 8-46 degrees back and forth,
-   the hand 0.87x MediaPipe's average size.
-   **ArUco markers (testing)**: with `vision.aruco` on, Fit 3D also looks
-   for markers in every frame (`src/vision/aruco.py`); the largest is taken
-   to sit in the middle of a face of the object, and where one is seen its
-   pose is the object's (the wireframe turns magenta). The outline fit
-   still runs alone on every frame, and is measured against the marker:
-   the summary and the plot show the outline fit's error in mm and degrees.
-   On a synthetic recording of a cube carrying a marker: 2.6 mm, 2.9
-   degrees. A marker's own accuracy at 0.3 m with this camera: 1-2 mm, 1-2
-   degrees tilted, 4-5 degrees square-on. The live preview draws markers
-   with their ids. Print them with `scripts/aruco_markers.py`.
-   *Send to sim* (`src/processing/transfer.py`) sends the person's **hand**
-   (`hand_sim.npz`; needs only step 3, so a recording of gestures with no
-   object works): the hand holding the object, else the one seen most, its
-   21 landmarks laid on the robot's palm - wrist on wrist, palm lengths
-   scaled to the robot's, a right hand mirrored onto the robot's left - and
-   its shape (*Learning: hand motion*). With *show in sim* it stands on the
-   plan stage beside the hand as an amber skeleton (balls joined by bones:
-   spatial tendons between sites on mocap bodies) following the player's
-   frame. Once fitted in 3D it also sends the **object** (`sim.npz`): that
-   motion in the robot hand's frame - the person's palm laid on the robot's, fingers to
-   fingers, palm-out to palm-out - placed as the World section's *training*
-   setting (`object.training`) says: *fixed pose*, centred where the World
-   section places the calibration object; or *from the hand*, where the
-   person held it relative to their palm, matched to the robot's palm -
-   along the palm scaled by the palms' lengths (the robot's, 120 mm wrist to
-   middle knuckle, is ~1.7 times a person's), out of it from palm surface to
-   palm surface, so a box resting on the person's palm rests on the robot's.
-   On the red-cube recording the two land within a few mm of each other. With *show in sim*, a translucent cyan ghost box
-   in the world (`demo`, touching nothing) follows the player's frame. The
-   robot is a left hand; a right-hand demonstration is not mirrored yet.
-   A step whose input was made again after it ran says so (amber): Send to
-   sim after a new Fit 3D - or after the World section places the object
-   otherwise (its *training* setting, or the fixed position) - and Plan and
-   Run after a new Send to sim. *Plan* and *Run* start fresh: when Send to
-   sim is missing or out of date they send to sim again first, so a moved
-   object is planned from its new place; the plan stage beside the hand is
-   cleared while they work.
-
-6. **Follow the hand** (`src/processing/follow.py` -> `follow.npz`): the
-   trained hand-motion policy (*Learning: hand motion*; the run
-   `learning.hand_run` names, else the newest) takes the shape of the
-   person's hand through the recording, in the hand sim on this Mac's CPU -
-   no object, no retraining; the robot hand starts at rest. The summary and
-   plot give how far each finger segment's direction and the fingertips are
-   off the person's, next to staying at rest. With *show in sim* the plan
-   stage's hand replays it, the skeleton on it.
-
-7. **Plan in sim** (`src/processing/plan.py` -> `plan.npz`): can this hand,
-   mounted as the World section has it, do what the recording shows? No
-   training. The task sim (`src/sim/task.py`) is the robot with a position
-   servo on every joint - XL330-M288 from its spec sheet: 0.52 N m at
-   1.47 A, so `hardware.current_limit_ma` caps the torque (300 mA: 0.11 N m)
-   - the object free, gravity, and a distance sensor from each fingertip to
-   the object. The hand collides with itself, as the real one does: each
-   link as its CAD mesh's convex hull; only parts joined at rest are left
-   out (a finger's first link against the base and palm it is mounted in,
-   and neighbouring fingers' proximal and middle links, which already
-   overlap by up to 1 mm) - found from the CAD when the sim is built. Forced
-   into each other, the fingers stop: no pair gets more than ~1 mm deeper
-   than at rest. (Until 2026-10-23 the hand did not collide with itself, and
-   plans pushed fingers through each other.) The planner (`src/sim/planner.py`) first searches for a
-   **grip**: one servo target per joint, tried 512 at a time in batched
-   MuJoCo rollouts - close on the object held where the motion starts, let
-   go, measure how far it slips - narrowed by the cross-entropy method over
-   20 rounds. Then it **follows** the motion with predictive sampling:
-   every 40 ms, 128 short finger motions are run 0.4 s ahead from the sim's
-   state and the one whose object best matches the recording is used. The
-   summary gives the grip's slip, whether the object was ever lost, and the
-   error while following next to the error had the object just stayed put
-   (following no better than that has not moved it). With *show in sim* the
-   plan stage replays it at the player's frame; the plot's cursor is the
-   player's frame. On the red-cube recording, hand upright: a grip that
-   slips 0.7 mm, 1 degree when let go, held throughout; following 4.6 mm /
-   5.9 degrees off (median; worst 8.8 mm, 17 degrees) where staying put
-   would be 10 mm / 23 degrees; fingers at most 1.8 mm into each other. About
-   24 s. A plan made for one mount says so when the World section's
-   orientation changes.
-
-8. **Run the trained policy** (`src/processing/track.py` -> `track.npz`):
-   the trained general tracker (see *Learning* below) follows the motion -
-   no retraining, only a grip where the motion starts (step 7's when
-   current, else searched). This is the one-shot test: a recording is never
-   trained on. Shown like step 7; when more than one exists, *plan stage
-   shows* picks which one the stage replays.
-
    Masks are used as the object's own region: SAM leaves stray specks far
    from the object (on the first SAM 3 recording, in 345 of 411 frames),
    which moved the measured centre by 17-28 px. `src/vision/regions.py`
    keeps the largest piece and the pieces of the same object, and drops the
    rest - when masks are made, measured and drawn.
+
+## Real to Sim
+
+The **Real to Sim** panel brings a recording into the sim on the robot hand
+(`src/viewer/real_to_sim_panel.py`): what the person's hand did, and what
+happened to the object. It shows the same recording as Recordings, at the
+same frame (`src/viewer/playback.py`); its timeline moves both. In the sim,
+following that frame:
+
+- **person's hand** - an amber skeleton on the plan stage beside the robot
+  (balls joined by bones: spatial tendons between sites on mocap bodies),
+  laid on the robot's palm;
+- **object** - the recording's object, a translucent cyan ghost box at the
+  robot hand (`demo`, touching nothing);
+- **robot** - the plan stage's hand replaying one result: following the
+  hand, the plan, or the trained policy (chosen under the timeline). A
+  result made from something out of date says so (amber) and is not
+  replayed; nothing is replayed while a step works on the recording.
+
+What is sent to sim is kept current by itself (`src/processing/transfer.py`):
+whenever the hand (`hand_sim.npz`) or the object (`sim.npz`) is missing or
+out of date - the hands cleaned again, a new 3D fit, another placement or
+object position - it is sent again in the background. *Follow*, *Plan* and
+*Run policy* send afresh first too, so a moved object is planned from its
+new place.
+
+**Hand.** Needs only the hands (Recordings, step 3), so a recording of
+gestures with no object works: the hand holding the object, else the one
+seen most, its 21 landmarks laid on the robot's palm - wrist on wrist, palm
+lengths scaled to the robot's, a right hand mirrored onto the robot's left -
+and its shape (*Learning: hand motion*). **Follow**
+(`src/processing/follow.py` -> `follow.npz`): the trained hand-motion policy
+(the run picked beside the button, `learning.hand_run`) takes the shape of
+the person's hand through the recording, in the hand sim on this Mac's CPU -
+no object, no retraining; the robot hand starts at rest. The summary and
+plot give how far each finger segment's direction and the fingertips are off
+the person's, next to staying at rest.
+
+**Object.** *placement* (`object.training`) says where on the robot hand the
+object goes: *fixed pose*, its motion centred on the World section's object
+position; or *from the hand*, where the person held it relative to their
+palm, matched to the robot's palm - along the palm scaled by the palms'
+lengths (the robot's, 120 mm wrist to middle knuckle, is ~1.7 times a
+person's), out of it from palm surface to palm surface, so a box resting on
+the person's palm rests on the robot's. On the red-cube recording the two
+land within a few mm of each other. The motion goes into the robot hand's
+frame with the person's palm laid on the robot's - fingers to fingers,
+palm-out to palm-out. The robot is a left hand; a right-hand demonstration
+is not mirrored for the object yet.
+
+**Fit 3D** (`src/processing/pose3d.py` -> `pose3d.npz`): the hands and the
+object in metres. The hand: MediaPipe's 3D hand shape fitted to its image
+points with the camera's calibration (OpenCV solvePnP), at one size for
+the whole recording (MediaPipe's per-frame size guess wobbled 85-102 mm,
+which swung the distance by 5 cm); a palm frame from the wrist and
+knuckles (x up the fingers, z out of the palm). The object: a box of the
+World section's `object.size_mm`, posed so its projected outline covers
+the mask - its image size gives the distance, its shape the rotation -
+found by searching 2000 orientations on the first frame (and whenever a
+frame fits worse than 0.95) and refined frame to frame. A box looks the
+same turned onto any like face (a cube: 24 ways), so each frame keeps the
+equal pose nearest the last; near square-on an outline hides up to ~10
+degrees of tilt. Both are smoothed (median of 9 frames). With a still hand
+(palm moving under 3 cm across the image) the palm's median pose is used,
+since its orientation is the least sure thing while the object hides it.
+The object's known size also measures the hand: `hand_scale`. On test
+cubes: within 1 degree and 5 mm (depth up to ~4%). On the red-cube
+recording: outline fit 0.97, the cube's centre 20-32 mm out of the palm
+(a 55 mm cube resting on it: 27.5+), turning 8-46 degrees back and forth,
+the hand 0.87x MediaPipe's average size.
+**ArUco markers (testing)**: with `vision.aruco` on, Fit 3D also looks
+for markers in every frame (`src/vision/aruco.py`); the largest is taken
+to sit in the middle of a face of the object, and where one is seen its
+pose is the object's (the wireframe turns magenta). The outline fit
+still runs alone on every frame, and is measured against the marker:
+the summary and the plot show the outline fit's error in mm and degrees.
+On a synthetic recording of a cube carrying a marker: 2.6 mm, 2.9
+degrees. A marker's own accuracy at 0.3 m with this camera: 1-2 mm, 1-2
+degrees tilted, 4-5 degrees square-on. The live preview draws markers
+with their ids. Print them with `scripts/aruco_markers.py`.
+
+Then the robot hand moves the object in the task sim, two ways:
+
+**Plan** (`src/processing/plan.py` -> `plan.npz`): can this hand,
+mounted as the World section has it, do what the recording shows? No
+training. The task sim (`src/sim/task.py`) is the robot with a position
+servo on every joint - XL330-M288 from its spec sheet: 0.52 N m at
+1.47 A, so `hardware.current_limit_ma` caps the torque (300 mA: 0.11 N m)
+- the object free, gravity, and a distance sensor from each fingertip to
+the object. The hand collides with itself, as the real one does: each
+link as its CAD mesh's convex hull; only parts joined at rest are left
+out (a finger's first link against the base and palm it is mounted in,
+and neighbouring fingers' proximal and middle links, which already
+overlap by up to 1 mm) - found from the CAD when the sim is built. Forced
+into each other, the fingers stop: no pair gets more than ~1 mm deeper
+than at rest. (Until 2026-10-23 the hand did not collide with itself, and
+plans pushed fingers through each other.) The planner (`src/sim/planner.py`) first searches for a
+**grip**: one servo target per joint, tried 512 at a time in batched
+MuJoCo rollouts - close on the object held where the motion starts, let
+go, measure how far it slips - narrowed by the cross-entropy method over
+20 rounds. Then it **follows** the motion with predictive sampling:
+every 40 ms, 128 short finger motions are run 0.4 s ahead from the sim's
+state and the one whose object best matches the recording is used. The
+summary gives the grip's slip, whether the object was ever lost, and the
+error while following next to the error had the object just stayed put
+(following no better than that has not moved it). The robot on the stage replays it; the plot's cursor is the frame on show. On the red-cube recording, hand upright: a grip that
+slips 0.7 mm, 1 degree when let go, held throughout; following 4.6 mm /
+5.9 degrees off (median; worst 8.8 mm, 17 degrees) where staying put
+would be 10 mm / 23 degrees; fingers at most 1.8 mm into each other. About
+24 s. A plan made for one mount says so when the World section's
+orientation changes.
+
+**Run policy** (`src/processing/track.py` -> `track.npz`): the trained
+general tracker (the run picked beside the button, `learning.run`; see
+*Learning* below) follows the motion - no retraining, only a grip where the
+motion starts (the plan's when current, else searched). This is the
+one-shot test: a recording is never trained on. Summarised and replayed like
+the plan.
 
 ## Learning: a general tracker
 
@@ -381,7 +412,7 @@ new demonstration needs no retraining, only its motion (`src/learning`).
    on CUDA. Same observations, actions and rewards as the Mac's environment
    (measured: identical at reset; within 0.2 mm and 0.3 degrees after 200
    contact-rich steps), so the weights come back into Runs and run on the
-   Mac's CPU (Test, Recordings step 8). Commit and push first - the panel
+   Mac's CPU (Test, Real to Sim's Run policy). Commit and push first - the panel
    says when not. The policy sees
    what the real hand will have - joint angles now and a step ago, servo
    targets, the object's pose as a camera would give it (noisy) - and the
@@ -489,10 +520,9 @@ collected whole.
 
 MuJoCo Studio (MuJoCo's ImGui viewer). Our panels only ever join Studio's
 side panes, so nothing is drawn over the 3D view. A **Robot** panel is docked
-on the right, as a tab beside Studio's Inspector; a **Vision** panel on the
-left, as a tab beside Studio's Options, and a **Learning** panel as a tab
-beside Vision. The menu bar has a menu for each that shows or hides its
-sections.
+on the right, as a tab beside Studio's Inspector; on the left, tabs beside
+Studio's Options: **Vision**, **Real to Sim** and **Learning**. The menu bar
+has a menu for each that shows or hides its sections.
 
 **Vision** (left):
 
@@ -527,30 +557,34 @@ sections.
 
   Below the status: *Record* / *Stop* and the *task* name; while recording,
   its length and frame count, then where it was saved.
-- **Recordings** - pick a recording (rescanned when the list opens); it
-  plays at recorded speed (mirrored like the preview, if *mirror* is on);
-  *Play*/*Pause* and a frame slider; switches for what is drawn on it:
-  *skeleton* (tracked hands, cleaned once step 3 has run), *masks* (segment
-  step, one colour per object), *boxes* (the context's box, on the frame it
-  was given for), *axis* (each object's long axis through its centre).
-  Then the steps: **1 describe** (*Describe*), **2 segment** (model
-  dropdown, *Segment*, progress, *Cancel*; then how much of the recording
-  each object was found in), **3 hands** (*Clean hands*; how many hands,
-  labels corrected, phantoms dropped), **4 object motion** (*Measure*; who
-  holds each object, and a plot of its angle in the image and in the hand -
-  click the plot to move the player), **5 transfer to sim** (*Fit 3D*,
-  *Send to sim*, *show in sim*), **6 plan in sim** (*Plan*; the grip, held or
-  lost, the error plot), **7 run the trained policy** (*Run*). *sent frames*: the frames Describe sent, numbered as the
-  model saw them, with the same overlays - click one to show it in the
-  player. *task context*: task, goal, objects (hover for the box), hands,
-  phases, uncertain.
-- **Assistant** - *provider*, *model*, *effort* (Claude), where the *API key*
-  comes from (or a field to enter one for this session). *Describe frame*
-  sends the live camera frame, as a quick look at what the model makes of
-  it (not saved). *prompt and limits* (collapsed): the system prompt, max
-  tokens, image size, clip frames.
+- **Recordings** - pick a recording (rescanned when the list opens; Real to
+  Sim shows the same one); it plays at recorded speed (mirrored like the
+  preview, if *mirror* is on); *Play*/*Pause* and a frame slider; switches
+  for what is drawn on it: *skeleton* (tracked hands, cleaned once step 3
+  has run), *masks* (segment step, one colour per object), *boxes* (the
+  context's box, on the frame it was given for), *axis* (each object's long
+  axis through its centre), *3D* (the 3D fit's box and palm axes). Then the
+  steps: **1 describe** (*Describe*; *sent frames* - the frames it sent,
+  numbered as the model saw them, click one to show it in the player; *task
+  context* - task, goal, objects, hands, phases, uncertain; and *assistant:
+  model, key, prompt* - *provider*, *model*, *effort* (Claude), where the
+  *API key* comes from or a field to enter one for this session, *Describe
+  frame* to try the live camera frame (not saved), the system prompt and
+  limits), **2 segment** (model dropdown, *Segment*, progress, *Cancel*;
+  then how much of the recording each object was found in), **3 hands**
+  (*Clean hands*; how many hands, labels corrected, phantoms dropped), **4
+  object motion** (*Measure*; who holds each object, and a plot of its
+  angle in the image and in the hand - click the plot to move the player).
 
-**Learning** (left, beside Vision; see *Learning: a general tracker* and
+**Real to Sim** (left, beside Vision; see *Real to Sim*): the recording and
+its timeline; *person's hand* and *object* switches and which result the
+*robot* on the stage replays; **hand** (which hand, a reminder to clean the
+hands first, the hand-motion run and *Follow*, its summary and plot);
+**object** (*placement*, *Fit 3D* with its summary and plot, then *Plan*
+and the tracker run with *Run policy*, each with whether it held the object
+and an error plot).
+
+**Learning** (left, beside Real to Sim; see *Learning: a general tracker* and
 *Learning: hand motion*):
 
 - **learn** - object tracking or hand motion; the sections below follow it.
@@ -565,8 +599,10 @@ sections.
 - **Runs** - every run, newest first: its rounds, its test (each recording -
   never trained on - and the median of the motions it trained on, next to
   the planner and to holding still; a drop in red), its curve; the radio
-  button picks the run Recordings step 8 uses (`learning.run`); *Test* for a
-  run not yet tested.
+  button picks the run Real to Sim uses (`learning.run`, or for hand motion
+  `learning.hand_run`, which Live uses too); *Test* for a tracker run not
+  yet tested. A hand-motion run's test is per kind of clip and per
+  recording: segment angle, fingertips and touches, next to holding still.
 
 Building and training run as processes of their own
 (`src/learning/background.py`), reporting into `data/learning/status.json`:
@@ -576,9 +612,11 @@ terminal show in the panel too.
 
 **Robot** (right):
 
+- **Live** - *Start live* / *Stop live* and the hand-motion run: the robot
+  hand follows your hand as the camera sees it (see *Live hand control*).
 - **Joints** - one slider per URDF joint, grouped by finger, ranges from the
   URDF limits, with the robot's encoder reading beside each. *Zero all* and
-  *Match robot* (targets := where the real hand is).
+  *Match robot* (targets := where the real hand is). Off while Live runs.
 - **World** - *hand* orientation dropdown, then the calibration object:
   *show* and *Reset object*; *mode* (fixed / floating); typed inputs for
   *width*, *depth*, *height* (mm) and *weight* (g); a *friction* slider with
@@ -640,8 +678,8 @@ settings.set("hardware.port", "/dev/cu.usbserial-XYZ"); settings.save()
 | --- | --- |
 | `robot.urdf` | the robot; sliders, world and motor map all follow it |
 | `world.*` | timestep, mount position and orientation, each hand's colour and emission (encoder, command, plan) |
-| `object.*` | calibration box: shown, fixed/floating, size, weight, friction, position, colour; *training*: where Send to sim puts a recording's object (fixed pose / from the hand) |
-| `learning.*` | what is learnt (object tracking or hand motion); the tracker's training: method, sim copies and rounds (PPO), rounds (teacher); the run step 8 uses and the hand-motion run (`""` = newest); the ClearML queue and GPU sim copies |
+| `object.*` | calibration box: shown, fixed/floating, size, weight, friction, position, colour; *training*: where Real to Sim puts a recording's object (fixed pose / from the hand; its *placement*) |
+| `learning.*` | what is learnt (object tracking or hand motion); the tracker's training: method, sim copies and rounds (PPO), rounds (teacher); the tracker run Real to Sim uses and the hand-motion run Follow and Live use (`""` = newest); the ClearML queue and GPU sim copies |
 | `control.max_speed` | command slew limit, rad/s |
 | `hardware.port` | `""` none, `"mock"` fake bus that echoes commands, or the U2D2 port |
 | `hardware.*` | baud, write/read rates, current limit, velocity profile, PID |
@@ -706,12 +744,13 @@ src/
   processing/hands.py     the hands step: follow, de-phantom, vote, fill, smooth
   processing/objects.py   the object step: motion in the image and in the hand
   processing/pose3d.py    Fit 3D: hand pose (PnP) and the box fitted to its outline
-  processing/transfer.py  Send to sim: onto the robot hand, for the world's ghost
-  processing/plan.py      Plan in sim: grip and follow in the task sim -> plan.npz
+  processing/transfer.py  the hand and the object onto the robot hand -> hand_sim.npz, sim.npz
+  processing/follow.py    Follow: the hand-motion policy takes the person's hand shapes
+  processing/plan.py      Plan: grip and follow in the task sim -> plan.npz
   sim/task.py             the task sim: robot with M288 servos, free object, gravity
   sim/planner.py          grip search (cross-entropy) and predictive sampling
   processing/files.py     the later steps' files, and which are out of date
-  processing/track.py     Run the trained policy: it follows a recording -> track.npz
+  processing/track.py     Run policy: the trained tracker follows a recording -> track.npz
   learning/trajectories.py  the tracker's library: grips, motions, feasibility
   learning/env.py         TrackEnv: thousands of task sims for rsl_rl's PPO
   learning/train.py       training methods, progress, evaluation, a trained policy's path
@@ -719,6 +758,11 @@ src/
   learning/background.py  library builds and training as processes, their status
   learning/remote.py      training on the ClearML agent's GPU, as a pipeline
   learning/gpu.py         the environment on the GPU (MuJoCo Warp), PPO, test
+  learning/handmotion.py  hand shapes: person and robot, the policy's input, its errors
+  learning/hand_library.py  the hand-motion library: random, touch, sign, wave, recorded
+  learning/gpu_hand.py    the hand-motion environment on the GPU, PPO, test
+  learning/hand_follow.py the hand-motion policy on this Mac (CpuHandEnv)
+  learning/live.py        Live: the policy following the camera's hand
   keys.py                 secrets (API keys, HF_TOKEN): environment, then .env
   assistant/claude.py     Anthropic Messages API
   assistant/openai_api.py OpenAI Responses API
@@ -729,10 +773,13 @@ src/
   viewer/world_panel.py     World section
   viewer/hardware_panel.py  Hardware section
   viewer/camera_panel.py    Camera section (preview, Record)
-  viewer/recordings_panel.py Recordings section (playback, Describe)
+  viewer/recordings_panel.py Recordings section (playback, steps 1-4)
+  viewer/playback.py        the recording on show, shared by Recordings and Real to Sim
+  viewer/real_to_sim_panel.py Real to Sim panel (hand, object, the robot doing it)
+  viewer/live_panel.py      Live section (the robot hand following your hand)
   viewer/learning_panel.py  Learning panel (library, training, runs)
   viewer/image.py           an image in a panel (GUI texture rules)
-  viewer/assistant_panel.py Assistant section
+  viewer/assistant_panel.py the assistant's settings (in Recordings, step 1)
   app.py                wires it all together
 scripts/                helpers, no arguments
 ```

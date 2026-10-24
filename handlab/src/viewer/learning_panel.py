@@ -11,10 +11,10 @@ responsive, and a run goes on when the window closes; Cancel stops it.
               it learns, live
     Runs      the runs learning it: object tracking - the recordings (never
               trained on) and the motions it trained on, next to the planner
-              and to holding still, which run Recordings step 8 uses, Test
+              and to holding still, which run Real to Sim's Run policy uses, Test
               for a run not yet tested; hand motion - the random motions and
               the recorded hands, next to holding still, which run
-              Recordings step 6 uses
+              Real to Sim's Follow and Robot > Live use
 """
 
 from __future__ import annotations
@@ -114,6 +114,20 @@ def _curve(plot_id, rows, learn, height=170):
     implot.EndPlot()
 
 
+def run_choice(form, learn, width=0.5):
+    """Which trained run of `learn` the app uses (train.LEARN's setting), as
+    a dropdown of the runs with a checkpoint."""
+    runs = [folder for folder in train.runs(learn) if any(folder.glob("model_*.pt"))]
+    chosen = train.chosen_run(learn)
+    imgui.SetNextItemWidth(imgui.GetContentRegionAvail().x * width)
+    if imgui.BeginCombo(f"##run{learn}", chosen.name if chosen else "no run yet"):
+        for folder in runs:
+            if imgui.Selectable(folder.name, folder == chosen) and folder != chosen:
+                form.save(train.LEARN[learn], folder.name)
+        imgui.EndCombo()
+    imgui.SetItemTooltip(f"the trained {learn} run to use (Learning panel > Runs)")
+
+
 class LibrarySection:
     title = "Library"
 
@@ -147,7 +161,7 @@ class LibrarySection:
              "in the sim, touches made - and every recorded hand. About 4 min" if hand else
              "starts the hand can grip around where each recording's motion begins, "
              "generated motions from each, and the recordings' own - each tried by the "
-             "planner. Needs a current Send to sim (Recordings, step 5). About 30 min, "
+             "planner. Needs recordings fitted in 3D (Real to Sim). About 30 min, "
              "on every core") + (" - something else is running" if busy else ""))
         _progress(self.poll.get(), "hand_library" if hand else "library", self.poll)
 
@@ -308,16 +322,14 @@ class RunsSection:
             imgui.TextDisabled(f"no {learn} runs yet")
             return
         chosen = train.chosen_run(learn)
-        imgui.TextDisabled("Recordings step 6 (follow the hand) uses the run picked here"
-                           if learn == HAND else "Recordings step 8 uses the run picked here")
+        imgui.TextDisabled("Real to Sim (Follow) and Robot > Live use the run picked here"
+                           if learn == HAND else "Real to Sim (Run policy) uses the run picked here")
         for folder in self._runs:
             config, evaluation, rows = self._read(folder)
             trained = any(folder.glob("model_*.pt"))
             if imgui.RadioButton(f"##use{folder.name}", folder == chosen) and trained:
                 self.form.save(train.LEARN[learn], folder.name)
-            imgui.SetItemTooltip(("use this run for Recordings step 6" if learn == HAND else
-                                  "use this run for Recordings step 8")
-                                 if trained else "no checkpoint yet")
+            imgui.SetItemTooltip("use this run" if trained else "no checkpoint yet")
             imgui.SameLine()
             # Runs from before progress.jsonl: count by their last checkpoint.
             checkpoints = [int(p.stem.split("_")[1]) + 1 for p in folder.glob("model_*.pt")]

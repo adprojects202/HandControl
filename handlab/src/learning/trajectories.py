@@ -90,7 +90,7 @@ def build(progress=lambda done, total, text="": None, seed=0):
     rng = np.random.default_rng(seed)
     recorded = _recorded()
     if not recorded:
-        raise ValueError("no recording has a current sim.npz (Recordings, step 5)")
+        raise ValueError("no recording has a current sim.npz (Real to Sim: fit 3D)")
     poses = []
     for source, positions, quats in recorded:
         poses.append((source, positions[0], quats[0]))

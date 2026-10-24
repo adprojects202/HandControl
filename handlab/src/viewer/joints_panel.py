@@ -3,7 +3,8 @@
 Built from the robot description alone - names, grouping and slider ranges
 all come from the URDF, so a different hand gets its own sliders with no code
 change. A slider sets that joint's TARGET; the purple hand shows the command
-that results, and the "robot" column reads the real encoders.
+that results, and the "robot" column reads the real encoders. While Live
+follows a hand (live_panel.py), it sets the targets and the sliders are off.
 """
 
 from __future__ import annotations
@@ -16,14 +17,24 @@ from mujoco.experimental.dear_imgui import dear_imgui as imgui
 class JointsSection:
     title = "Joints"
 
-    def __init__(self, robot, controller, encoders):
-        """`encoders()` returns the robot's joint angles, or None without one."""
+    def __init__(self, robot, controller, encoders, live=lambda: False):
+        """`encoders()` returns the robot's joint angles, or None without one;
+        `live()` whether Live sets the targets now."""
         self.robot = robot
         self.controller = controller
         self.encoders = encoders
+        self.live = live
 
     def draw(self):
         robot_q = self.encoders()
+        live = self.live()
+        if live:
+            imgui.TextDisabled("Live sets the targets - stop it to use the sliders")
+        imgui.BeginDisabled(live)
+        self._sliders(robot_q)
+        imgui.EndDisabled()
+
+    def _sliders(self, robot_q):
         if imgui.Button("Zero all"):
             self.controller.set_targets([0.0] * len(self.robot))
         imgui.SameLine()

@@ -20,7 +20,7 @@ all of them (mean squared error, EPOCHS passes).
 
 Round 0 has BETA 1: the planner drives, plain imitation. Each round's
 checkpoint is rsl_rl's (the actor with its observation normalization), as
-PPO's are, so Test, Runs and Recordings step 8 take it unchanged. The
+PPO's are, so Test, Runs and Real to Sim take it unchanged. The
 progress file gets, per round: the error while it ran (the planner's and
 the policy's actions mixed by BETA), the fit's loss, and how many labels.
 """

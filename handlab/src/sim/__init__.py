@@ -6,5 +6,5 @@
                 predictive sampling: many short finger motions tried in
                 parallel each step, the best one used
 
-processing/plan.py runs them on a recording (Recordings, step 7).
+processing/plan.py runs them on a recording (Real to Sim: Plan).
 """
