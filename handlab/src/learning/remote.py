@@ -12,7 +12,7 @@ What it learns is `learning.learn`: "object tracking" (gpu.py, the task sim)
 or "hand motion" (gpu_hand.py, the hand alone). What it trains on goes up as
 a ClearML dataset - the bundle: this Mac's library and sim as MJCF (the
 model this Mac compiles, with this Mac's settings) - `export_bundle` for
-object tracking, handmotion.export_bundle for hand motion. The
+object tracking, hand_library.export_bundle for hand motion. The
 step is scripts/clearml_gpu_step.py from the GitHub repository at this very
 commit, so the code must be committed and pushed first (`blocked` says so;
 settings.json need not be - it is in the bundle). The agent installs
@@ -42,7 +42,7 @@ import mujoco
 
 from .. import settings
 from ..paths import ROOT
-from . import handmotion, trajectories
+from . import hand_library, trajectories
 from .train import RUNS
 
 PROJECT = "HandRL"
@@ -108,7 +108,7 @@ def run(progress=lambda done, total, text="": None):
     progress(0, 100, "uploading the bundle")
     with tempfile.TemporaryDirectory() as tmp:
         dataset = Dataset.create(dataset_project=PROJECT, dataset_name=f"handlab {learn} bundle")
-        export = handmotion.export_bundle if learn == "hand motion" else export_bundle
+        export = hand_library.export_bundle if learn == "hand motion" else export_bundle
         dataset.add_files(str(export(Path(tmp) / "bundle")))
         dataset.upload()
         dataset.finalize()

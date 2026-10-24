@@ -1719,6 +1719,35 @@ def hand_shapes_match_between_a_person_and_the_robot():
 
 
 @check
+def hand_library_makes_real_touches_and_keeps_clips_as_key_poses():
+    from src.learning import hand_library
+    from src.learning.handmotion import TOUCH_PL
+    rng = np.random.default_rng(0)
+    hand = hand_library._Hand()
+    # A touch is made in the sim: the thumb's last link on the index's.
+    poses = [hand_library._touch_pose(hand, ("index",), rng) for _ in range(5)]
+    assert any(pose is not None for pose in poses), "no touch made in 5 tries"
+    pose = next(pose for pose in poses if pose is not None)
+    hand.data.qpos[:] = pose
+    mujoco.mj_forward(hand.model, hand.data)
+    assert hand.touching("index") and hand.pinch("index") < TOUCH_PL
+    # A small library: each generated clip's shapes come from its key poses.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "hand_library.npz"
+        summary = hand_library.build(sizes={"random": 2, "touch": 3, "gesture": 3, "wave": 2},
+                                     path=path, recordings=False)
+        assert summary["touch"] == 3 and summary["recorded"] == 0
+        library = hand_library.load(path)
+        shapes = hand_library.features(library, hand.kinematics)
+        assert shapes.shape[:2] == (10, library["length"].max())
+        first = hand.kinematics.shapes(library["start"][:1])[0]
+        assert np.allclose(shapes[0, 0], first, atol=1e-5), "a clip starts at its first key"
+        touch = library["kind"] == "touch"
+        assert (shapes[touch][:, :, -3:].min(axis=(1, 2)) < TOUCH_PL).all(), \
+            "every touch clip has the thumb on a fingertip"
+
+
+@check
 def a_persons_hand_stands_on_the_robot_palm_in_the_sim():
     from src.learning import handmotion
     from src.world import PLAN_OFFSET, _compose

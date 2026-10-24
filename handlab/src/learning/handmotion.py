@@ -1,12 +1,14 @@
 """Hand motion: what the robot hand learns before any object - to take the
 shape of a person's hand, as it moves.
 
-    library = build(progress)                   # -> data/learning/hand_library.npz
-    export_bundle(folder)                       # what the GPU trains on (gpu_hand.py)
     features = human_features(world, side)      # MediaPipe hands -> shapes
-    chain = robot_chain()                       # where the robot's matching points are
+    chain, palm = robot_chain()                 # where the robot's matching points are
     features = shape(points)                    # either hand's points -> shape
+    features = Kinematics(model, chain, palm).shapes(joints)   # the robot's, from joints
     policy_input = observation(...)             # what the policy sees (gpu_hand, hand_follow)
+    error, touching = touch_error(robot, goal)  # how far off the fingertips that touch are
+
+The clips it learns from: hand_library.py.
 
 A hand's shape, the same for a person's hand and the robot's though they
 differ in size (the robot's palm is ~1.7 times a person's) and fingers (it
@@ -30,54 +32,29 @@ joint), the next two joints, and the tip; for the thumb its second, third and
 fourth joints and the tip - each a point fixed on a link (`robot_chain`), so
 they follow the links wherever the joints put them.
 
-The library: clips of shapes at RATE Hz to follow, each to learn from -
-RANDOM_CLIPS of the robot moving between poses it can reach (each finger's
-joints curling together, as a hand's do, or - one pose in UNIFORM_SHARE -
-every joint anywhere in its range; none with fingers inside each other),
-with a minimum-jerk motion between them; and every recorded hand in
-data/tasks (hands_clean.npz, else hands.npz), in pieces of up to CLIP_S.
-Recordings of gestures - fists, each finger, peace, pointing - add to it
-when it is built again.
-
-    hand_library.npz
-        features (C, L, FEATURES): the shapes, each clip padded with its last
-        length (C,): frames; start (C, J) rad: the robot's joints a random
-            clip starts from (NaN for a recorded one: from rest)
-        source (C,): "random" or the recording's folder
-        rate, made
+A goal pinch under TOUCH_PL palm lengths is a touch: the robot's thumb and
+fingertip pads meet with their tip points 0.15 - 0.23 palm lengths apart
+(measured on settled touches, hand_library.py).
 """
 
 from __future__ import annotations
-
-import json
-import shutil
-from datetime import datetime
 
 import mujoco
 import numpy as np
 import torch
 
-from ..paths import ROOT
 from ..sim.task import hand_spec
 from . import env as tracker
 
-LIBRARY = ROOT / "data" / "learning" / "hand_library.npz"
 RATE = 20
 FEATURES = 51
 SEGMENTS = 12
 FUTURE_STEPS = (1, 3, 6)         # the shapes ahead the policy sees, in steps
 ACTION_SCALE = tracker.ACTION_SCALE   # rad a servo target moves per step at most
+TOUCH_PL = 0.25
 CHAINS = {"thumb": [1, 2, 3, 4], "index": [5, 6, 7, 8], "middle": [9, 10, 11, 12],
           "ring": [13, 14, 15, 16]}
 WRIST, MIDDLE_KNUCKLE, INDEX_KNUCKLE, PINKY_KNUCKLE = 0, 9, 5, 17
-RANDOM_CLIPS = 1500
-POSES = (4, 9)                # poses a random clip moves through
-MOVE_S = (0.4, 1.4)
-HOLD_S = (0.0, 0.5)
-UNIFORM_SHARE = 0.3
-CLIP_S = 6.0
-MIN_CLIP_S = 1.0
-SEED = 0
 
 
 # ------------------------------------------------------------------ the shape
@@ -120,6 +97,17 @@ def errors(robot, goal):
                             dim=-1).mean(dim=1)
     pinch = (robot[:, tips:FEATURES] - goal[:, tips:FEATURES]).abs().mean(dim=1)
     return angle, tip, pinch
+
+
+def touch_error(robot, goal):
+    """(error (n,), touching (n,)): between shapes (n, FEATURES), the mean
+    pinch error over the fingertips the goal has touching the thumb (a pinch
+    under TOUCH_PL), palm lengths - 0 where none touch."""
+    pinch, wanted = robot[:, FEATURES - 3:], goal[:, FEATURES - 3:]
+    touching = wanted < TOUCH_PL
+    count = touching.sum(dim=1)
+    error = ((pinch - wanted).abs() * touching).sum(dim=1) / torch.clamp(count, min=1)
+    return error, count > 0
 
 
 def human_points(world, side):
@@ -239,155 +227,31 @@ def _vertices(model, data, geom):
     return points @ data.geom_xmat[geom].reshape(3, 3).T + data.geom_xpos[geom]
 
 
-# ------------------------------------------------------------------ the library
-def build(progress=lambda done, total, text="": None, seed=SEED):
-    """The hand-motion library from random poses and every recording."""
-    rng = np.random.default_rng(seed)
-    model = hand_spec()[0].compile()
-    data = mujoco.MjData(model)
-    chain, palm = robot_chain(model)
-    hinges = [j for j in range(model.njnt) if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE]
-    qadr = model.jnt_qposadr[hinges]
-    low, high = model.jnt_range[hinges].T
-    clips, starts, sources = [], [], []
-    for number in range(RANDOM_CLIPS):
-        poses = [_pose(model, data, qadr, low, high, rng)
-                 for _ in range(int(rng.integers(*POSES)))]
-        joints = _motion(poses, rng)
-        frames = []
-        for q in joints:
-            data.qpos[qadr] = q
-            mujoco.mj_kinematics(model, data)
-            frames.append(robot_points(model, data, chain, palm))
-        clips.append(shape(np.array(frames)))
-        starts.append(poses[0])
-        sources.append("random")
-        if number % 50 == 0:
-            progress(number, RANDOM_CLIPS, f"random motion {number} of {RANDOM_CLIPS}")
-    for folder, features in _recorded():
-        for piece in _pieces(features):
-            clips.append(piece)
-            starts.append(np.full(len(qadr), np.nan))
-            sources.append(folder)
-    return _save(clips, starts, sources)
+class Kinematics:
+    """The robot's shapes from its joints: `model` (any compile of the hand
+    sim), its 16 points (`chain`: [(body id, point (3,) in the body's
+    frame)]) and its palm (wrist, axes, length) in the model's world;
+    `joints`: the joint names a pose lists, in order (default: the model's)."""
 
+    def __init__(self, model, chain, palm, joints=None):
+        self.model, self.data = model, mujoco.MjData(model)
+        self.bodies = np.array([body for body, _ in chain])
+        self.local = np.array([point for _, point in chain])
+        self.palm = palm
+        names = joints or [model.joint(j).name for j in range(model.njnt)]
+        self.qadr = np.array([model.jnt_qposadr[model.joint(name).id] for name in names])
 
-def export_bundle(folder):
-    """What the GPU trains on (gpu_hand.py), into `folder`: the library,
-    the hand sim as MJCF (hand.xml) and bundle.json - its joints in the
-    library's order, where the 16 points sit (body names, points in the
-    bodies' frames) and the palm frame."""
-    library = load()
-    if not library:
-        raise RuntimeError("no hand library - build it first")
-    folder.mkdir(parents=True, exist_ok=True)
-    shutil.copy(LIBRARY, folder / LIBRARY.name)
-    spec, _, mount, _ = hand_spec()
-    model = spec.compile()
-    chain, (wrist, axes, length) = robot_chain(model)
-    # Attaching the robot leaves an empty default class in the export, which
-    # newer MuJoCo (3.17, the agent's) refuses; it holds nothing.
-    xml = spec.to_xml().replace("  <default>\n    <default/>\n  </default>\n", "", 1)
-    (folder / "hand.xml").write_text(xml)
-    (folder / "bundle.json").write_text(json.dumps({
-        "joints": [model.joint(j).name for j in range(model.njnt)
-                   if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE],
-        "bodies": [model.body(body).name for body, _ in chain],
-        "points": [point.tolist() for _, point in chain],
-        "wrist": wrist.tolist(), "axes": axes.tolist(), "palm_length": length,
-        "mount_position": mount[0].tolist(), "mount_quat": mount[1].tolist(),
-        "mujoco": mujoco.__version__, "library_made": str(library["made"]),
-        "made": datetime.now().isoformat(timespec="seconds")}, indent=2))
-    return folder
-
-
-def load(path=LIBRARY):
-    if not path.exists():
-        return {}
-    with np.load(path) as arrays:
-        return {key: arrays[key] for key in arrays.files}
-
-
-def _pose(model, data, qadr, low, high, rng):
-    """A pose the hand can take, its fingers clear of each other."""
-    for _ in range(100):
-        if rng.random() < UNIFORM_SHARE:
-            q = rng.uniform(low, high)
-        else:                                  # each finger curls its joints together
-            q = np.zeros(len(qadr))
-            for start in range(0, len(qadr), 4):
-                curl = rng.uniform(0.0, 1.0)
-                for k in range(4):
-                    i = start + k
-                    centre = low[i] + curl * (high[i] - low[i]) if k else \
-                        rng.uniform(low[i], high[i]) * 0.5
-                    q[i] = np.clip(centre + rng.normal(0, 0.1 * (high[i] - low[i])),
-                                   low[i], high[i])
-        data.qpos[qadr] = q
-        mujoco.mj_forward(model, data)
-        if not any(contact.efc_address >= 0 for contact in data.contact[:data.ncon]):
-            return q
-    return np.zeros(len(qadr))
-
-
-def _motion(poses, rng):
-    """Joint angles at RATE: still for a while at each pose, minimum-jerk
-    between them."""
-    out = []
-    for a, b in zip(poses, poses[1:]):
-        out += [a] * round(rng.uniform(*HOLD_S) * RATE)
-        frames = max(2, round(rng.uniform(*MOVE_S) * RATE))
-        for frame in range(1, frames + 1):
-            s = frame / frames
-            out.append(a + (b - a) * (10 * s ** 3 - 15 * s ** 4 + 6 * s ** 5))
-    return np.array(out + [poses[-1]] * round(rng.uniform(*HOLD_S) * RATE))
-
-
-def _recorded():
-    """[(folder, features (T, FEATURES) at RATE)] for every run of frames a
-    hand is seen in, in every recording."""
-    from ..recording import Episode, episodes            # here: training needs no recordings
-    from ..vision.tracker import SIDES
-
-    out = []
-    for folder in episodes():
-        episode = Episode(folder)
-        hands = episode.clean_hands or episode.hands
-        if not hands or episode.frames < 2:
-            continue
-        for slot, side in enumerate(SIDES):
-            present = hands["present"][:, slot] & np.isfinite(hands["world"][:, slot]).all(axis=(1, 2))
-            edges = np.diff(np.r_[0, present.astype(np.int8), 0])
-            for begin, end in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)):
-                times = episode.times[begin:end]
-                if times[-1] - times[0] < MIN_CLIP_S:
-                    continue
-                world = hands["world"][begin:end, slot].astype(float)
-                at = np.arange(times[0], times[-1], 1.0 / RATE)
-                resampled = np.stack([np.interp(at, times, world[:, p, k])
-                                      for p in range(21) for k in range(3)], axis=-1)
-                out.append((str(folder), human_features(resampled.reshape(-1, 21, 3), side)))
-    return out
-
-
-def _pieces(features):
-    step = round(CLIP_S * RATE)
-    return [features[i:i + step] for i in range(0, len(features), step)
-            if len(features[i:i + step]) >= MIN_CLIP_S * RATE]
-
-
-def _save(clips, starts, sources):
-    length = max(len(c) for c in clips)
-    padded = np.stack([np.concatenate([c, np.repeat(c[-1:], length - len(c), axis=0)])
-                       for c in clips]).astype(np.float32)
-    arrays = {"features": padded, "length": np.array([len(c) for c in clips]),
-              "start": np.array(starts, np.float32), "source": np.array(sources),
-              "rate": np.array(RATE), "made": np.array(datetime.now().isoformat(timespec="seconds"))}
-    LIBRARY.parent.mkdir(parents=True, exist_ok=True)
-    tmp = LIBRARY.with_suffix(".tmp.npz")
-    np.savez_compressed(tmp, **arrays)
-    tmp.replace(LIBRARY)
-    recorded = arrays["source"] != "random"
-    return {"clips": len(clips), "random": int((~recorded).sum()),
-            "recorded": int(recorded.sum()),
-            "recordings": len(set(arrays["source"][recorded].tolist()))}
+    def shapes(self, joints):
+        """Shapes (T, FEATURES) for poses (T, J)."""
+        count = len(joints)
+        positions = np.empty((count, len(self.bodies), 3))
+        rotations = np.empty((count, len(self.bodies), 9))
+        for row, q in enumerate(joints):
+            self.data.qpos[self.qadr] = q
+            mujoco.mj_kinematics(self.model, self.data)
+            positions[row] = self.data.xpos[self.bodies]
+            rotations[row] = self.data.xmat[self.bodies]
+        world = positions + np.einsum("tpij,pj->tpi", rotations.reshape(count, -1, 3, 3),
+                                      self.local)
+        wrist, axes, length = self.palm
+        return shape((world - wrist) @ axes / length)

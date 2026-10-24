@@ -16,11 +16,14 @@ the clip's shape there:
                                                each joint bends
     + TIP_WEIGHT exp(-tip error / TIP_SCALE)   the fingertips, palm lengths
     + PINCH_WEIGHT exp(-pinch error / PINCH_SCALE)   thumb tip to each tip
+    + TOUCH_WEIGHT exp(-touch error / TOUCH_SCALE)   the pinches the clip has
+                                               touching (handmotion.touch_error):
+                                               tips that should meet, meet
     - TARGET_COST |target change|^2            moving at all costs a little
     - SMOOTH_COST |change of target change|^2  jerking costs more
 
-A random clip starts in its first pose (or, one in REST_SHARE, at rest); a
-recorded one at rest. Physics and observations are randomized as the
+A generated clip starts in its first pose (or, one in REST_SHARE, at rest);
+a recorded one at rest. Physics and observations are randomized as the
 tracker's are (env.py): servo strength, the target arriving late, joint
 noise.
 
@@ -28,9 +31,11 @@ Observations. "policy": handmotion.observation - the same wherever the
 hand runs (hand_follow.py on the Mac). "privileged" (the critic only):
 joint speeds and the servo strength drawn.
 
-The bundle (handmotion.export_bundle, made on the Mac): hand_library.npz,
-the hand sim as MJCF (hand.xml) and bundle.json - where the robot's 16
-points sit (body names, points in the bodies' frames) and its palm frame.
+The bundle (hand_library.export_bundle, made on the Mac): hand_library.npz,
+the hand sim as MJCF (hand.xml) and bundle.json - its joints, where the
+robot's 16 points sit (body names, points in the bodies' frames) and its
+palm frame. The library holds generated clips as key poses: their shapes
+are made here, through this hand.xml's kinematics (hand_library.features).
 """
 
 from __future__ import annotations
@@ -45,19 +50,23 @@ from tensordict import TensorDict
 
 from . import env as cpu
 from .gpu import LINESEARCH_ITERATIONS, SOLVER_ITERATIONS, Worlds
-from .handmotion import (ACTION_SCALE, FUTURE_STEPS, LIBRARY, RATE, errors, load,
-                         observation, shape)
+from .hand_library import LIBRARY, features, load
+from .handmotion import (ACTION_SCALE, FUTURE_STEPS, RATE, Kinematics, errors, observation,
+                         shape, touch_error)
 
 ANGLE_SCALE = 0.3                # rad
 TIP_SCALE = 0.1                  # palm lengths
 PINCH_SCALE = 0.08               # palm lengths
 TIP_WEIGHT = 0.5
 PINCH_WEIGHT = 0.5
+TOUCH_SCALE = 0.03               # palm lengths (~4 mm)
+TOUCH_WEIGHT = 1.0
 TARGET_COST = 0.5
 SMOOTH_COST = 2.0
 REST_SHARE = 0.2
 SETTINGS = ("ACTION_SCALE", "FUTURE_STEPS", "ANGLE_SCALE", "TIP_SCALE", "PINCH_SCALE",
-            "TIP_WEIGHT", "PINCH_WEIGHT", "TARGET_COST", "SMOOTH_COST", "REST_SHARE")
+            "TIP_WEIGHT", "PINCH_WEIGHT", "TOUCH_SCALE", "TOUCH_WEIGHT", "TARGET_COST",
+            "SMOOTH_COST", "REST_SHARE")
 
 
 class GpuHandEnv(VecEnv):
@@ -97,7 +106,10 @@ class GpuHandEnv(VecEnv):
         self.local = tensor(meta["points"])
         self.wrist, self.axes = tensor(meta["wrist"]), tensor(meta["axes"])
         self.palm_length = float(meta["palm_length"])
-        self.features = tensor(library["features"])
+        chain = [(mjm.body(name).id, np.array(point))
+                 for name, point in zip(meta["bodies"], meta["points"])]
+        palm = (np.array(meta["wrist"]), np.array(meta["axes"]), self.palm_length)
+        self.features = tensor(features(library, Kinematics(mjm, chain, palm, meta["joints"])))
         self.length = tensor(library["length"], torch.long)
         start = np.asarray(library["start"], np.float32)
         self.has_start = tensor(np.isfinite(start).all(axis=1), torch.bool)
@@ -143,9 +155,12 @@ class GpuHandEnv(VecEnv):
         self.episode_length_buf += 1
         self.worlds.counted()
 
-        angle, tip, pinch = errors(self.robot_shape(), self._goal())
+        robot, goal = self.robot_shape(), self._goal()
+        angle, tip, pinch = errors(robot, goal)
+        touch, touching = touch_error(robot, goal)
         reward = (torch.exp(-angle / ANGLE_SCALE) + TIP_WEIGHT * torch.exp(-tip / TIP_SCALE)
                   + PINCH_WEIGHT * torch.exp(-pinch / PINCH_SCALE)
+                  + TOUCH_WEIGHT * torch.exp(-touch / TOUCH_SCALE)
                   - TARGET_COST * (change ** 2).sum(dim=1)
                   - SMOOTH_COST * ((change - self.change) ** 2).sum(dim=1))
         self.change = change
@@ -153,8 +168,10 @@ class GpuHandEnv(VecEnv):
         log = {"/hand/angle_deg": torch.rad2deg(angle).mean(),
                "/hand/tip_mm": 1000 * self.palm_length * tip.mean(),
                "/hand/pinch_mm": 1000 * self.palm_length * pinch.mean(),
+               "/hand/touch_mm": 1000 * self.palm_length * touch.sum()
+               / torch.clamp(touching.sum(), min=1),
                "/hand/unstable": unstable.float().sum()}
-        rows = torch.stack([angle, tip, pinch], dim=1)
+        rows = torch.stack([angle, tip, pinch, touch, touching.float()], dim=1)
         done = timed_out | unstable
         if done.any():
             self._reset(torch.nonzero(done).squeeze(1))
@@ -238,8 +255,10 @@ def train(bundle, folder, envs, iterations, config, writer_config, device="cuda:
 
 def evaluate(bundle, folder, checkpoint, config, device="cuda:0", physics=None):
     """The trained policy on every clip once, nominal physics, no noise: per
-    clip {clip, source, angle_deg, tip_mm, pinch_mm (medians), and the same
-    for keeping still - the start pose held - for scale}."""
+    clip {clip, kind, source, recorded, angle_deg, tip_mm, pinch_mm, touch_mm
+    (medians; touch_mm over the frames the clip has fingertips touching, None
+    without any), and the same had the hand kept still - its start pose
+    held - for scale}."""
     from rsl_rl.runners import OnPolicyRunner
 
     library = load(Path(bundle) / LIBRARY.name)
@@ -252,29 +271,35 @@ def evaluate(bundle, folder, checkpoint, config, device="cuda:0", physics=None):
     runner.load(str(checkpoint), load_cfg={"actor": True}, strict=True)
     policy = runner.get_inference_policy()
     still = env.robot_shape()                       # every clip's start, before moving
-    count = len(clips)
-    finished = torch.zeros(count, dtype=torch.bool, device=env.device)
-    rows, still_rows = [[] for _ in range(count)], [[] for _ in range(count)]
+    finished = torch.zeros(len(clips), dtype=torch.bool, device=env.device)
+    moved, kept, active = [], [], []                # per step: (clips, 5), (clips,)
     obs = env.get_observations()
     with torch.inference_mode():
         while not finished.all():
             goal = env._goal(1)
             obs, _, done, extras = env.step(policy(obs))
-            kept = torch.stack(errors(still, goal), dim=1).cpu().numpy()
-            measured = extras["errors"].cpu().numpy()
-            for i in torch.nonzero(~finished).squeeze(1).tolist():
-                rows[i].append(measured[i])
-                still_rows[i].append(kept[i])
+            touch, touching = touch_error(still, goal)
+            kept.append(torch.stack([*errors(still, goal), touch, touching.float()], dim=1).cpu())
+            moved.append(extras["errors"].cpu())
+            active.append((~finished).cpu())
             finished |= done
+    moved, kept = torch.stack(moved).numpy(), torch.stack(kept).numpy()
+    active = torch.stack(active).numpy()
     scale = 1000 * env.palm_length
     results = []
     for i, clip in enumerate(clips):
-        moved, kept = np.median(rows[i], axis=0), np.median(still_rows[i], axis=0)
+        rows, still_rows = moved[active[:, i], i], kept[active[:, i], i]
+        touched = rows[:, 4] > 0
+        median, still_median = np.median(rows, axis=0), np.median(still_rows, axis=0)
         results.append({
-            "clip": int(clip), "source": str(library["source"][clip]),
-            "recorded": bool(library["source"][clip] != "random"),
-            "angle_deg": float(np.degrees(moved[0])), "tip_mm": float(scale * moved[1]),
-            "pinch_mm": float(scale * moved[2]),
-            "still_angle_deg": float(np.degrees(kept[0])), "still_tip_mm": float(scale * kept[1]),
-            "still_pinch_mm": float(scale * kept[2])})
+            "clip": int(clip), "kind": str(library["kind"][clip]),
+            "source": str(library["source"][clip]), "recorded": bool(library["recorded"][clip]),
+            "angle_deg": float(np.degrees(median[0])), "tip_mm": float(scale * median[1]),
+            "pinch_mm": float(scale * median[2]),
+            "touch_mm": float(scale * np.median(rows[touched, 3])) if touched.any() else None,
+            "still_angle_deg": float(np.degrees(still_median[0])),
+            "still_tip_mm": float(scale * still_median[1]),
+            "still_pinch_mm": float(scale * still_median[2]),
+            "still_touch_mm": (float(scale * np.median(still_rows[touched, 3]))
+                               if touched.any() else None)})
     return results

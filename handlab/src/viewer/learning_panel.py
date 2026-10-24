@@ -29,7 +29,7 @@ from mujoco.experimental.dear_imgui import dear_imgui as imgui
 from mujoco.experimental.implot import implot
 
 from .. import settings
-from ..learning import handmotion, remote, train, trajectories
+from ..learning import hand_library, remote, train, trajectories
 from .assistant_panel import AMBER
 from .form import GREEN, RED, SettingsForm, row, table
 
@@ -39,6 +39,7 @@ CURVES = {"object tracking": (("/track/turn_deg", "turn off (deg)", 1.0),
                                ("Policy/mean_std", "exploration (x100)", 100.0)),
           "hand motion": (("/hand/angle_deg", "shape off (deg)", 1.0),
                           ("/hand/tip_mm", "tips off (mm)", 1.0),
+                          ("/hand/touch_mm", "touches off (mm)", 1.0),
                           ("Policy/mean_std", "exploration (x100)", 100.0))}
 HAND = "hand motion"
 
@@ -141,8 +142,9 @@ class LibrarySection:
             self.poll.refresh()
         imgui.EndDisabled()
         imgui.SetItemTooltip(
-            ("random motions of the robot hand between poses it can take, and every "
-             "recorded hand - as hand shapes to follow. About 10 s" if hand else
+            ("the robot hand's motions to follow: random poses, the thumb touching "
+             "fingertips in turn, hand signs, fingers curling in turn - each pose settled "
+             "in the sim, touches made - and every recorded hand. About 4 min" if hand else
              "starts the hand can grip around where each recording's motion begins, "
              "generated motions from each, and the recordings' own - each tried by the "
              "planner. Needs a current Send to sim (Recordings, step 5). About 30 min, "
@@ -152,7 +154,7 @@ class LibrarySection:
     def _describe(self, hand):
         """The library's summary, re-read when the file or what is learnt
         changes."""
-        path = handmotion.LIBRARY if hand else trajectories.LIBRARY
+        path = hand_library.LIBRARY if hand else trajectories.LIBRARY
         made = (hand, path.stat().st_mtime if path.exists() else None)
         if made == self._made:
             return
@@ -178,19 +180,23 @@ class LibrarySection:
             f"recordings (the test, never trained on): {', '.join(names) or 'none'}"]
 
     def _describe_hand(self):
-        library = handmotion.load()
+        library = hand_library.load()
         self._exists = bool(library)
         if not library:
             self._lines = ["no hand library yet"]
             return
-        source = library["source"]
-        recorded = source != "random"
-        names = sorted({str(s).rstrip("/").split("/")[-1] for s in source[recorded]})
+        if "kind" not in library:
+            self._lines = ["from before touches and signs - build it again"]
+            return
+        kind = library["kind"]
+        names = sorted({str(s).rstrip("/").split("/")[-1]
+                        for s in library["source"][library["recorded"]]})
         seconds = library["length"].sum() / int(library["rate"])
+        counts = ", ".join(f"{int((kind == k).sum())} {k}" for k in
+                           ("random", "touch", "gesture", "wave", "recorded"))
         self._lines = [
             f"made {str(library['made']).replace('T', ' ')}",
-            f"{int((~recorded).sum())} random motions, {int(recorded.sum())} recorded "
-            f"hands - {seconds / 60:.0f} min in all",
+            f"clips: {counts} - {seconds / 60:.0f} min in all",
             f"recordings: {', '.join(names) or 'none'}"]
 
 
@@ -244,7 +250,7 @@ class TrainSection:
             imgui.TreePop()
         self.form.draw_message()
         busy = self.poll.busy()
-        no_library = not (handmotion.LIBRARY if hand else trajectories.LIBRARY).exists()
+        no_library = not (hand_library.LIBRARY if hand else trajectories.LIBRARY).exists()
         imgui.BeginDisabled(busy or no_library or hand)
         if imgui.Button("Train"):
             self.poll.task.start("train")
@@ -333,30 +339,32 @@ class RunsSection:
         if evaluation is None:
             imgui.TextDisabled("not tested (the GPU tests it after training)")
             return
-        groups = {"random motions": [r for r in evaluation if not r["recorded"]]}
+        groups = {}
         for result in evaluation:
-            if result["recorded"]:
-                name = result["source"].rstrip("/").split("/")[-1]
-                groups.setdefault(name, []).append(result)
+            name = (result["source"].rstrip("/").split("/")[-1] if result["recorded"]
+                    else result.get("kind", result["source"]))
+            groups.setdefault(name, []).append(result)
         if not imgui.BeginTable(f"results{folder.name}", 3,
                                 int(imgui.TableFlags.SizingStretchProp)
                                 | int(imgui.TableFlags.RowBg)):
             return
-        for header in ("clips", "policy deg / tips mm", "held still deg / tips mm"):
+        for header in ("clips", "policy deg / tips mm / touch mm",
+                       "held still deg / tips mm / touch mm"):
             imgui.TableSetupColumn(header)
         imgui.TableHeadersRow()
+
+        def median(results, key):
+            values = [r[key] for r in results if r.get(key) is not None]
+            return f"{np.median(values):.1f}" if values else "-"
+
         for name, results in groups.items():
-            if not results:
-                continue
-            median = {key: float(np.median([r[key] for r in results]))
-                      for key in ("angle_deg", "tip_mm", "still_angle_deg", "still_tip_mm")}
             imgui.TableNextRow()
             imgui.TableNextColumn()
             imgui.Text(f"{name} ({len(results)})")
-            imgui.TableNextColumn()
-            imgui.Text(f"{median['angle_deg']:.1f} / {median['tip_mm']:.1f}")
-            imgui.TableNextColumn()
-            imgui.Text(f"{median['still_angle_deg']:.1f} / {median['still_tip_mm']:.1f}")
+            for prefix in ("", "still_"):
+                imgui.TableNextColumn()
+                imgui.Text(" / ".join(median(results, prefix + key)
+                                      for key in ("angle_deg", "tip_mm", "touch_mm")))
         imgui.EndTable()
 
     def _results(self, folder, evaluation, trained):

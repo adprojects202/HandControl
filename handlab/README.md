@@ -400,8 +400,8 @@ new demonstration needs no retraining, only its motion (`src/learning`).
 
 Before any object, the hand learns to move like a hand: to take the shape
 of a person's hand as it moves - each finger opening and closing, fists,
-pointing, peace (`learning.learn` = "hand motion"; `src/learning/handmotion.py`,
-`gpu_hand.py`).
+pointing, peace, the thumb touching each fingertip (`learning.learn` = "hand
+motion"; `src/learning/handmotion.py`, `hand_library.py`, `gpu_hand.py`).
 
 A hand's **shape** is the same numbers for a person and the robot though
 they differ in size and fingers: for the thumb and the index, middle and
@@ -409,18 +409,34 @@ ring fingers, each finger's three segments as directions, the fingertips,
 and the thumb tip's distance to each fingertip - in the palm's frame,
 measured in palm lengths. A right hand is mirrored onto the robot's left.
 
-1. **Library** (`scripts/build_hand_library.py` ->
-   `data/learning/hand_library.npz`, about 10 s): random motions of the
-   robot hand between poses it can take (fingers curling together, or any
-   joint anywhere; none with fingers inside each other), minimum-jerk
-   between them - and every recorded hand, as shapes at 20 Hz.
+1. **Library** (`src/learning/hand_library.py`, `scripts/build_hand_library.py`
+   -> `data/learning/hand_library.npz`, about 4 min): clips of the robot
+   hand moving through key poses, minimum-jerk between them, at 20 Hz -
+   **random** poses (fingers curling together, or any joint anywhere; none
+   with fingers inside each other); **touch**: the thumb tip on one
+   fingertip after another, or on two at once, sometimes opening between,
+   quickly - the dexterous part; **gesture**: hand signs one after another
+   (open, spread, fist, point, peace, OK, thumbs up, three, claw, rock);
+   **wave**: the fingers and thumb curling in turn, one at a time or
+   counting up and down - and every **recorded** hand. A touch is made, not
+   assumed: inverse kinematics puts the thumb tip on the fingertips, the
+   servos drive the hand there in the hand sim and the fingers stop on each
+   other, and the pose is kept only if they touch (93-100% do); sign and
+   wave poses settle the same way. At contact the thumb and fingertip tip
+   points are 0.10-0.19 palm lengths apart (12-23 mm). A clip is kept as
+   its key poses and timing, not its frames, so the file stays a few MB; the
+   GPU makes the shapes through its hand model's kinematics.
 2. **Training**, on the ClearML agent's GPU only: PPO over
    `learning.gpu_envs` hand sims (no object), each following a clip: the
    reward is how close the robot's shape is to the clip's (segment angles,
-   fingertips, pinches), less a little for moving and more for jerking.
-   Servo strength, a late target and joint noise are randomized as for the
-   tracker. The test follows every clip once and compares with holding
-   still.
+   fingertips, pinches), plus how close the pinches the clip has touching
+   are (`gpu_hand.TOUCH_WEIGHT`: tips that should meet, meet), less a
+   little for moving and more for jerking. Servo strength, a late target
+   and joint noise are randomized as for the tracker. The test follows
+   every clip once and compares with holding still, per kind and per
+   recording, with the touch error over the frames that touch. First run
+   (random motions only, 1500 rounds, ~2.2 s each on the RTX 3090): random
+   clips 4.5 deg / 4.4 mm off, recorded hands 11-28 deg (held still: 46-86).
 
 ## Assistant
 
@@ -645,10 +661,10 @@ All take no arguments and read `settings.json`.
 
 | script | does |
 | --- | --- |
-| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays, the plan stage, the task sim's weld and servos, a grip that holds, the plan step, out-of-date files, generated motions, the tracker's environment, hand shapes (person and robot) |
+| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays, the plan stage, the task sim's weld and servos, a grip that holds, the plan step, out-of-date files, generated motions, the tracker's environment, hand shapes (person and robot), the hand library's touches and key poses |
 | `scripts/render.py` | `renders/world.png` - the world without a window |
 | `scripts/build_library.py` | the tracker's trajectory library from the recordings (about 30 min; also the Learning panel's *Build library*) |
-| `scripts/build_hand_library.py` | the hand-motion library: random robot motions and every recorded hand (about 10 s; also *Build library* learning hand motion) |
+| `scripts/build_hand_library.py` | the hand-motion library: random poses, touches, signs, waves and every recorded hand (about 4 min; also *Build library* learning hand motion) |
 | `scripts/clearml_train.py` | trains on the ClearML agent's GPU as a pipeline and fetches the run (also *Train on ClearML*) |
 | `scripts/clearml_gpu_step.py` | the GPU training step - run by the agent, not by hand |
 | `scripts/train_tracker.py` | trains the general tracker on this Mac by `learning.*`, then tests it on every motion (also the Learning panel's *Train*) |
