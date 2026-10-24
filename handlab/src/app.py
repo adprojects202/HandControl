@@ -21,7 +21,8 @@ it moves the robot; Live only sets the targets, which reach the hardware
 only while streaming.
 
 The panels: Robot on the right (Joints, World, Hardware); Vision (Camera,
-Live, Recordings), Real to Sim and Learning on the left. Recordings and
+Live, Mimic, Recordings), Real to Sim and Learning on the left. Mimic takes
+the plan stage while it runs; Real to Sim gets it back after. Recordings and
 Real to Sim show the same recording at the same frame (viewer/playback.py).
 """
 
@@ -40,6 +41,7 @@ from .viewer.hardware_panel import HardwareSection
 from .viewer.joints_panel import JointsSection
 from .viewer.learning_panel import LibrarySection, RunsSection, TaskStatus, TrainSection
 from .viewer.live_panel import LiveSection
+from .viewer.mimic_panel import MimicSection
 from .viewer.panel import SidePanel
 from .viewer.playback import Playback
 from .viewer.real_to_sim_panel import RealToSimSection
@@ -75,6 +77,7 @@ class App:
         self._plan = None           # the plan stage's frame (World.set_plan), or None
         self._skeleton = None       # a person's hand on the stage (World.set_skeleton), or None
         self._stop_live = None      # Live's stop, once the panels are made
+        self._prompting = False     # Mimic has the plan stage: the others' frames wait
 
     def tick(self, dt):
         if self._apply_world:
@@ -116,12 +119,24 @@ class App:
     def show_demo(self, pose):
         """Show a recording's object in the sim as the demo ghost - (position,
         quaternion) in the hand mount's frame - or hide it (None)."""
-        self._demo = pose
+        if not self._prompting:
+            self._demo = pose
 
     def show_plan(self, frame):
         """Show one moment of a planned task on the plan stage beside the hand
         (World.set_plan), or hide it (None)."""
-        self._plan = frame
+        if not self._prompting:
+            self._plan = frame
+
+    def show_prompt(self, frame, skeleton):
+        """Mimic: the pose to copy on the plan stage and your hand on it -
+        ahead of Real to Sim's, until `release_stage()`."""
+        self._prompting = True
+        self._demo, self._plan, self._skeleton = None, frame, skeleton
+
+    def release_stage(self):
+        self._prompting = False
+        self.hide_recording()
 
     def hide_recording(self):
         """Take a recording's object, plan stage and hand out of the sim."""
@@ -130,7 +145,8 @@ class App:
     def show_skeleton(self, points):
         """Show a person's hand on the plan stage - its landmarks (21, 3) m
         in the hand mount's frame - or hide it (None)."""
-        self._skeleton = points
+        if not self._prompting:
+            self._skeleton = points
 
     def apply_settings(self):
         """Push saved settings into the running parts (after a GUI edit)."""
@@ -160,6 +176,9 @@ class App:
         playback = Playback(on_open=lambda episode: self.hide_recording())
         live = LiveSection(self.live, self.apply_vision)
         self._stop_live = live.stop
+        camera = CameraSection(self.camera, self.recorder, self.apply_vision, self.back_camera)
+        mimic = MimicSection(self.camera, self.apply_vision, self.show_prompt,
+                             self.release_stage, camera.camera_name)
         return [
             SidePanel("Robot", [
                 JointsSection(self.robot, self.controller, lambda: self.bus.encoders,
@@ -169,9 +188,9 @@ class App:
                                 self.apply_settings),
             ]),
             SidePanel("Vision", [
-                CameraSection(self.camera, self.recorder, self.apply_vision,
-                              self.back_camera),
+                camera,
                 live,
+                mimic,
                 RecordingsSection(self.assistant, AssistantSection(self.assistant, self.camera),
                                   self.processing, playback),
             ], beside="Options"),

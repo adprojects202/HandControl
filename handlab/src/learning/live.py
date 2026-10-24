@@ -30,7 +30,7 @@ import numpy as np
 import torch
 
 from .hand_follow import CpuHandEnv, load_policy
-from .handmotion import FEATURES, RATE, errors, human_features
+from .handmotion import FEATURES, RATE, errors, followed, human_features
 from .train import chosen_run
 
 HAND = "hand motion"
@@ -101,7 +101,7 @@ class LiveHand:
         if frame is None:
             self.status, self.side = "waiting for the camera", None
             return
-        hand = _pick(frame.hands)
+        hand = followed(frame.hands)
         if hand is None:
             self.status, self.side = "no hand in view - holding", None
             return
@@ -112,11 +112,3 @@ class LiveHand:
         angle, _, _ = errors(env.shape_now(), env.goal())
         self.side, self.angle_deg = hand.side, float(np.degrees(angle[0]))
         self.status = f"following your {hand.side.lower()} hand"
-
-
-def _pick(hands):
-    """The hand to follow: the left one when both are seen, else the one seen."""
-    if not hands:
-        return None
-    left = [hand for hand in hands if hand.side == "Left"]
-    return (left or sorted(hands, key=lambda hand: -hand.score))[0]

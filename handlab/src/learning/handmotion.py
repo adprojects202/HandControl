@@ -110,6 +110,16 @@ def touch_error(robot, goal):
     return error, count > 0
 
 
+def followed(hands):
+    """Of the camera's hands (vision.tracker.Hand), the one to follow: the
+    left one when both are seen (the robot is a left hand), else the one
+    seen most surely; None without any."""
+    if not hands:
+        return None
+    left = [hand for hand in hands if hand.side == "Left"]
+    return (left or sorted(hands, key=lambda hand: -hand.score))[0]
+
+
 def human_points(world, side):
     """MediaPipe world landmarks (..., 21, 3) of a `side` hand -> the 16
     points (..., 16, 3) in its palm frame, palm lengths; a right hand

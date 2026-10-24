@@ -224,6 +224,7 @@ DEFAULTS = {
         "iterations": 1500,     # ppo rounds; ~5 s each with 2048 copies (M4 Max)
         "teacher_rounds": 4,    # planner_teacher rounds; ~20 min each (170 motions)
         "run": "",              # the tracker run Real to Sim's Run policy uses; "" = the newest
+        "mimic_prompts": 80,    # poses in a Mimic session (Vision panel), 3.5 s each
         "hand_run": "",         # the hand-motion run Follow and Live use; "" = the newest
         # Training on the ClearML agent's GPU (src/learning/remote.py, gpu.py):
         # its queue, and how many task sims the GPU steps together.
@@ -328,6 +329,7 @@ RANGES = {
     "learning.iterations": (1, 100_000),
     "learning.teacher_rounds": (1, 50),
     "learning.gpu_envs": (64, 65_536),
+    "learning.mimic_prompts": (10, 500),
 }
 # What a value may be, from a list. Anything else falls back to the default.
 CHOICES = {

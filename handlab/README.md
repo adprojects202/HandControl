@@ -97,6 +97,24 @@ and then slew-limited by `control.max_speed` as always. *Stop live* turns
 the camera off again if Live turned it on. Tried on a recorded hand played
 as a camera: 20 Hz, ~15 degrees off the hand's shape.
 
+## Mimic sessions
+
+The camera never sees a pinch as touching: on a recording, MediaPipe's
+thumb and index tips came no closer than 0.20 palm lengths (5th percentile
+0.26), where the robot's fingertips touch at 0.14 - so a policy following
+the camera's hand shape faithfully stays 25-30 mm short of a pinch. A
+**Mimic** session (Vision panel; `src/learning/mimic.py`) records what the
+camera makes of your hand next to the pose you meant: the robot on the plan
+stage shows a key pose of the hand library - half of them the thumb
+touching fingertips, the rest signs and fingers curled - your hand stands on
+it as a skeleton, and you copy it: 0.8 s while the robot moves there, 1.2 s
+to get your hand there, 1.5 s holding (`learning.mimic_prompts` poses, 80 by
+default: under 5 min). Every camera frame is kept with the pose shown at
+its moment and the phase - `data/learning/mimic/<stamp>.npz`. Mimic has the
+plan stage while it runs; Real to Sim gets it back after. The hand-motion
+training then learns from camera skeletons as well as from the robot's own
+shapes.
+
 ## The control loop
 
 ```
@@ -560,6 +578,9 @@ has a menu for each that shows or hides its sections.
 - **Live** - instead of recording: *Start live* / *Stop live* and the
   hand-motion run - the robot hand follows your hand as the camera sees it
   (see *Live hand control*).
+- **Mimic** - *Start mimic* and how many *poses*: copy the robot's poses
+  with your hand, to teach the hand-motion policy what the camera makes of
+  it (see *Mimic sessions*); how many sessions are saved.
 - **Recordings** - pick a recording (rescanned when the list opens; Real to
   Sim shows the same one); it plays at recorded speed (mirrored like the
   preview, if *mirror* is on); *Play*/*Pause* and a frame slider; switches
