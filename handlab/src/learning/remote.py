@@ -108,8 +108,11 @@ def run(progress=lambda done, total, text="": None):
     progress(0, 100, "uploading the bundle")
     with tempfile.TemporaryDirectory() as tmp:
         dataset = Dataset.create(dataset_project=PROJECT, dataset_name=f"handlab {learn} bundle")
-        export = hand_library.export_bundle if learn == "hand motion" else export_bundle
-        dataset.add_files(str(export(Path(tmp) / "bundle")))
+        if learn == "hand motion":
+            bundle = hand_library.export_bundle(Path(tmp) / "bundle", progress)
+        else:
+            bundle = export_bundle(Path(tmp) / "bundle")
+        dataset.add_files(str(bundle))
         dataset.upload()
         dataset.finalize()
     step = Task.create(project_name=PROJECT, task_name="handlab train_gpu", repo=repo,

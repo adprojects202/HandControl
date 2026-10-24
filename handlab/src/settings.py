@@ -225,6 +225,10 @@ DEFAULTS = {
         "teacher_rounds": 4,    # planner_teacher rounds; ~20 min each (170 motions)
         "run": "",              # the tracker run Real to Sim's Run policy uses; "" = the newest
         "mimic_prompts": 80,    # poses in a Mimic session (Vision panel), 3.5 s each
+        # The goals a hand-motion policy sees while it trains: "robot shapes"
+        # - the clips' own; "camera skeletons" - as the camera gives a hand
+        # copying them (Mimic sessions; learning/gpu_hand.py GOALS).
+        "hand_goals": "robot shapes",
         "hand_run": "",         # the hand-motion run Follow and Live use; "" = the newest
         # Training on the ClearML agent's GPU (src/learning/remote.py, gpu.py):
         # its queue, and how many task sims the GPU steps together.
@@ -348,6 +352,7 @@ CHOICES = {
     "assistant.claude_effort": ("low", "medium", "high", "xhigh", "max"),
     "learning.method": ("ppo", "planner_teacher"),
     "learning.learn": ("object tracking", "hand motion"),
+    "learning.hand_goals": ("robot shapes", "camera skeletons"),
 }
 
 

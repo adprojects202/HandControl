@@ -6,7 +6,7 @@ not only from the robot's own shapes.
     q, phase, number = session.target(seconds)   # the robot pose to show
     session.add(frame, seconds)                  # each new camera frame
     path = session.save(camera_name)             # -> data/learning/mimic/<stamp>.npz
-    pairs = load_all()                           # every session, for training
+    clips = clips()                              # every session, as training clips
 
 Why: the camera never sees a pinch as touching. Measured on a recording,
 the thumb tip and index tip as MediaPipe gives them come no closer than 0.20
@@ -40,19 +40,24 @@ import numpy as np
 
 from ..paths import ROOT
 from . import hand_library
-from .handmotion import TOUCH_PL, followed
+from .handmotion import RATE, TOUCH_PL, followed, human_features
 
 FOLDER = ROOT / "data" / "learning" / "mimic"
 MOVE_S, READY_S, HOLD_S = 0.8, 1.2, 1.5
 MOVE, READY, HOLD = 0, 1, 2
 TOUCH_SHARE = 0.5
 DISTINCT = 0.15               # rad: key poses closer than this (mean per joint) count once
+CLIP_S = 6.0                  # training clips: pieces of a session
+MIN_CLIP_S = 2.0
+MAX_LAG_S = 1.0               # how late your hand may follow the robot
+HELD_OUT = 5                  # every 5th clip is only tested on (all but the last session's, with one)
 
 
-def prompts(count, seed=None):
-    """`count` key poses of the hand library to copy: (joints (P, J), shapes
-    (P, FEATURES), kinds (P,)) - half touches, the rest signs and curls."""
-    library = hand_library.load()
+def prompts(count, seed=None, library=None):
+    """`count` key poses of the hand library (or `library`) to copy: (joints
+    (P, J), shapes (P, FEATURES), kinds (P,)) - half touches, the rest signs
+    and curls."""
+    library = library or hand_library.load()
     if "key_first" not in library:
         raise RuntimeError("build the hand library first (Learning, learn: hand motion)")
     rng = np.random.default_rng(seed)
@@ -147,3 +152,71 @@ def sessions():
 def load(path):
     with np.load(path) as arrays:
         return {key: arrays[key] for key in arrays.files}
+
+
+def clips(paths=None):
+    """Every session as training clips at RATE: {target (M, FEATURES) - the
+    pose shown, moved later by how late your hand followed it (`lag`); seen
+    (M, FEATURES) - your hand's shape from the camera; first (K + 1,) each
+    clip's first row; held_out (K,): only tested on - the last session's
+    clips when there are more, else every HELD_OUT-th; lag (S,) s per
+    session}. Only where your hand was seen throughout."""
+    from .hand_library import _Hand
+
+    kinematics = _Hand().kinematics
+    paths = list(paths if paths is not None else sessions())
+    target, seen, first, held, lags = [], [], [0], [], []
+    for number, path in enumerate(paths):
+        session = load(path)
+        times = session["time"].astype(float)
+        grid = np.arange(times[0], times[-1], 1.0 / RATE)
+        present = _resampled(session["present"].astype(float), times, grid) > 0.99
+        world = np.stack([np.interp(grid, times[session["present"]],
+                                    session["world"][session["present"], p, k])
+                          for p in range(21) for k in range(3)], axis=-1).reshape(-1, 21, 3)
+        side = str(session["side"][session["present"]][0]) if session["present"].any() else "Left"
+        shown = np.stack([_resampled(session["target"][:, j], times, grid)
+                          for j in range(session["target"].shape[1])], axis=-1)
+        camera = human_features(world, side)
+        lag = _lag(kinematics.shapes(shown), camera)
+        lags.append(lag / RATE)
+        shown = np.concatenate([np.repeat(shown[:1], lag, axis=0), shown[:len(shown) - lag]])
+        shapes = kinematics.shapes(shown)
+        for begin, end in _runs(present):
+            for start in range(begin, end, round(CLIP_S * RATE)):
+                stop = min(end, start + round(CLIP_S * RATE))
+                if stop - start < MIN_CLIP_S * RATE:
+                    continue
+                target.append(shapes[start:stop])
+                seen.append(camera[start:stop])
+                first.append(first[-1] + stop - start)
+                held.append(number == len(paths) - 1 if len(paths) > 1
+                            else len(held) % HELD_OUT == HELD_OUT - 1)
+    if not target:
+        return {}
+    return {"target": np.concatenate(target).astype(np.float32),
+            "seen": np.concatenate(seen).astype(np.float32), "first": np.array(first),
+            "held_out": np.array(held), "lag": np.array(lags)}
+
+
+def _resampled(values, times, grid):
+    return np.interp(grid, times, values)
+
+
+def _runs(mask):
+    edges = np.diff(np.r_[0, mask.astype(np.int8), 0])
+    return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
+
+
+def _lag(shown, camera):
+    """How many frames your hand followed the robot late: the shift that
+    best lines up the pinches' changes (most correlated)."""
+    pinch_shown, pinch_seen = np.diff(shown[:, -3:], axis=0), np.diff(camera[:, -3:], axis=0)
+    best, lag_best = -np.inf, 0
+    for lag in range(round(MAX_LAG_S * RATE) + 1):
+        a = pinch_shown[:len(pinch_shown) - lag]
+        b = pinch_seen[lag:]
+        score = (a * b).sum() / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9)
+        if score > best:
+            best, lag_best = score, lag
+    return lag_best

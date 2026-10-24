@@ -48,12 +48,14 @@ def main():
     if learn not in train.LEARN:
         raise ValueError(f"learn is {learn!r}: one of {', '.join(train.LEARN)}")
     module = gpu_hand if learn == "hand motion" else gpu
+    meta = json.loads((bundle / "bundle.json").read_text())
     (folder / "run.json").write_text(json.dumps({
         "learn": learn, "method": "ppo", "device": torch.cuda.get_device_name(0),
         "envs": envs, "iterations": iterations, "bundle": params["bundle"], "physics": physics,
         "library_made": json.loads((bundle / "bundle.json").read_text())["library_made"],
         "config": train.CONFIG,
-        **({"env": {name: getattr(gpu_hand, name) for name in gpu_hand.SETTINGS}}
+        **({"env": {name: getattr(gpu_hand, name) for name in gpu_hand.SETTINGS},
+            **{key: meta[key] for key in ("goals", "camera_model") if key in meta}}
            if module is gpu_hand else {})}, indent=2))
     writer = {"class_name": "src.learning.train:ProgressWriter", "iterations": iterations}
     module.train(bundle, folder, envs, iterations, train.CONFIG, writer, physics=physics)

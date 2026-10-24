@@ -1748,6 +1748,55 @@ def hand_library_makes_real_touches_and_keeps_clips_as_key_poses():
 
 
 @check
+def mimic_sessions_find_the_lag_and_the_camera_model_learns_the_pinch():
+    import types
+    from src.learning import camera_model, hand_library, mimic
+    from src.learning.handmotion import robot_points
+    from src.vision.tracker import Hand
+    lag_s, bias = 0.4, 0.08               # a copier 0.4 s late, its thumb tip 0.08 off
+    hand = hand_library._Hand()
+    rng = np.random.default_rng(0)
+
+    def landmarks(q):
+        """The robot's own points as a person's hand, the thumb tip moved away."""
+        hand.data.qpos[:] = q
+        mujoco.mj_kinematics(hand.model, hand.data)
+        points = robot_points(hand.model, hand.data, hand.chain, hand.palm)
+        away = points[3] - points[[7, 11, 15]].mean(axis=0)
+        points[3] += bias * away / np.linalg.norm(away)
+        world = np.zeros((21, 3))
+        world[1:17] = points
+        world[17:21] = points[12:16] + (points[12:16] - points[8:12])
+        return (world + rng.normal(0, 0.01, world.shape)) * 0.08
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        hand_library.build(sizes={"random": 1, "touch": 6, "gesture": 6, "wave": 3},
+                           path=tmp / "library.npz", recordings=False)
+        library = hand_library.load(tmp / "library.npz")
+        saved, mimic.FOLDER = mimic.FOLDER, tmp / "mimic"
+        try:
+            paths = []
+            for seed in (1, 2):
+                session = mimic.MimicSession(mimic.prompts(20, seed=seed, library=library))
+                for n in range(int(session.length_s * 30)):
+                    shown = session.target(max(0.0, n / 30 - lag_s))
+                    q = shown[0] if shown else session.joints[-1]
+                    frame = types.SimpleNamespace(number=n, hands=[
+                        Hand("Left", 0.9, np.zeros((21, 3)), landmarks(q))])
+                    session.add(frame, n / 30)
+                paths.append(session.save("synthetic"))
+                time.sleep(1.0)                  # sessions are named by the second
+            clips = mimic.clips(paths)
+            assert np.allclose(clips["lag"], lag_s), clips["lag"]
+            assert clips["held_out"].any() and not clips["held_out"].all()
+            report = camera_model.fit(paths=paths, path=tmp / "camera_model.npz")
+            assert report["pinch_error"] < 0.6 * report["identity_pinch_error"], report
+        finally:
+            mimic.FOLDER = saved
+
+
+@check
 def a_persons_hand_stands_on_the_robot_palm_in_the_sim():
     from src.learning import handmotion
     from src.world import PLAN_OFFSET, _compose

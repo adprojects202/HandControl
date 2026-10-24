@@ -29,7 +29,7 @@ from mujoco.experimental.dear_imgui import dear_imgui as imgui
 from mujoco.experimental.implot import implot
 
 from .. import settings
-from ..learning import hand_library, remote, train, trajectories
+from ..learning import camera_model, hand_library, mimic, remote, train, trajectories
 from .assistant_panel import AMBER
 from .form import GREEN, RED, SettingsForm, row, table
 
@@ -169,7 +169,8 @@ class LibrarySection:
         """The library's summary, re-read when the file or what is learnt
         changes."""
         path = hand_library.LIBRARY if hand else trajectories.LIBRARY
-        made = (hand, path.stat().st_mtime if path.exists() else None)
+        changed = [path, mimic.FOLDER, camera_model.MODEL] if hand else [path]
+        made = (hand, *(p.stat().st_mtime if p.exists() else None for p in changed))
         if made == self._made:
             return
         self._made = made
@@ -211,7 +212,14 @@ class LibrarySection:
         self._lines = [
             f"made {str(library['made']).replace('T', ' ')}",
             f"clips: {counts} - {seconds / 60:.0f} min in all",
-            f"recordings: {', '.join(names) or 'none'}"]
+            f"recordings: {', '.join(names) or 'none'}",
+            f"Mimic sessions: {len(mimic.sessions())}"]
+        fitted = camera_model.report(camera_model.load())
+        if fitted:
+            self._lines.append(
+                f"camera model: {fitted['poses']} poses; on {fitted['held_out_poses']} held out, "
+                f"pinches {fitted['pinch_error']:.3f} palm lengths off (taking the camera's "
+                f"as the robot's: {fitted['identity_pinch_error']:.3f})")
 
 
 class TrainSection:
@@ -260,6 +268,12 @@ class TrainSection:
                     low, high = settings.limits("learning.iterations")
                     row("rounds", f"PPO rounds\n{low} - {high}")
                     self.form.field("learning.iterations")
+                    row("goals", "what the policy sees as the hand shape to take:\n"
+                                 "robot shapes - the clips' own\ncamera skeletons - as the "
+                                 "camera gives a hand copying them: learnt from your Mimic "
+                                 "sessions (Vision panel), so a pinch the camera never sees "
+                                 "closed still closes the robot's")
+                    self.form.choice("learning.hand_goals")
                 imgui.EndTable()
             imgui.TreePop()
         self.form.draw_message()
@@ -355,6 +369,8 @@ class RunsSection:
         for result in evaluation:
             name = (result["source"].rstrip("/").split("/")[-1] if result["recorded"]
                     else result.get("kind", result["source"]))
+            if result.get("held_out"):
+                name += " (held out)"
             groups.setdefault(name, []).append(result)
         if not imgui.BeginTable(f"results{folder.name}", 3,
                                 int(imgui.TableFlags.SizingStretchProp)

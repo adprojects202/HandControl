@@ -111,9 +111,22 @@ it as a skeleton, and you copy it: 0.8 s while the robot moves there, 1.2 s
 to get your hand there, 1.5 s holding (`learning.mimic_prompts` poses, 80 by
 default: under 5 min). Every camera frame is kept with the pose shown at
 its moment and the phase - `data/learning/mimic/<stamp>.npz`. Mimic has the
-plan stage while it runs; Real to Sim gets it back after. The hand-motion
-training then learns from camera skeletons as well as from the robot's own
-shapes.
+plan stage while it runs; Real to Sim gets it back after.
+
+The sessions teach the hand-motion training what the camera makes of a
+hand (`learning.hand_goals` = "camera skeletons"): a **camera model**
+(`src/learning/camera_model.py`) is fitted to every session's holds - the
+camera's hand shape as the robot pose's shape plus a learnt correction, with
+a spread - and measured on every 5th pose, held out. Each session also
+becomes training clips (`mimic.clips`): resampled to 20 Hz, the pose shown
+moved later by how late your hand followed it (the lag that best lines up
+the pinches' changes). On the GPU the policy then *sees* goals as the camera
+gives them - the library's clips through the camera model with its spread
+as noise (part kept for the episode, part fresh each step), your Mimic clips
+as recorded - while its reward is still the robot pose meant
+(`gpu_hand.py`, GOALS). Tested on a synthetic copier 0.4 s late with the
+thumb tip 0.08 palm lengths off: the lag found exactly, and the held-out
+pinches predicted 3x better than taking the camera's hand as the robot's.
 
 ## The control loop
 
@@ -483,7 +496,9 @@ measured in palm lengths. A right hand is mirrored onto the robot's left.
    little for moving and more for jerking. Servo strength, a late target
    and joint noise are randomized as for the tracker. The test follows
    every clip once and compares with holding still, per kind and per
-   recording, with the touch error over the frames that touch. First run
+   recording, with the touch error over the frames that touch - and, with
+   camera skeletons, over the Mimic clips, the held-out ones apart: does
+   the robot pinch when you do. First run
    (random motions only, 1500 rounds, ~2.2 s each on the RTX 3090): random
    clips 4.5 deg / 4.4 mm off, recorded hands 11-28 deg (held still: 46-86).
 

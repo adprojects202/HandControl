@@ -177,11 +177,18 @@ def frames(joints, hold, move):
     return np.array(out)
 
 
-def export_bundle(folder):
+def export_bundle(folder, progress=lambda done, total, text="": None):
     """What the GPU trains on (gpu_hand.py), into `folder`: the library,
     the hand sim as MJCF (hand.xml) and bundle.json - its joints in the
     library's order, where the 16 points sit (body names, points in the
-    bodies' frames) and the palm frame."""
+    bodies' frames), the palm frame, and which goals the policy sees
+    (`learning.hand_goals`). With "camera skeletons", also the camera model,
+    fitted afresh to every Mimic session (camera_model.npz), and the
+    sessions as clips (mimic_clips.npz)."""
+    from .. import settings
+    from . import camera_model, mimic
+
+    goals = settings.get("learning.hand_goals")
     library = load()
     if not library:
         raise RuntimeError("no hand library - build it first")
@@ -189,6 +196,12 @@ def export_bundle(folder):
         raise RuntimeError("the hand library is from before touches and signs - build it again")
     folder.mkdir(parents=True, exist_ok=True)
     shutil.copy(LIBRARY, folder / LIBRARY.name)
+    fitted = {}
+    if goals == "camera skeletons":
+        fitted = camera_model.fit(progress)
+        shutil.copy(camera_model.MODEL, folder / camera_model.MODEL.name)
+        progress(0, 1, "making the Mimic sessions into clips")
+        np.savez(folder / "mimic_clips.npz", **mimic.clips())
     spec, _, mount, _ = hand_spec()
     model = spec.compile()
     chain, (wrist, axes, length) = robot_chain(model)
@@ -202,6 +215,7 @@ def export_bundle(folder):
         "points": [point.tolist() for _, point in chain],
         "wrist": wrist.tolist(), "axes": axes.tolist(), "palm_length": length,
         "mount_position": mount[0].tolist(), "mount_quat": mount[1].tolist(),
+        "goals": goals, "camera_model": fitted,
         "mujoco": mujoco.__version__, "library_made": str(library["made"]),
         "made": datetime.now().isoformat(timespec="seconds")}, indent=2))
     return folder
