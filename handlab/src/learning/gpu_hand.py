@@ -43,7 +43,9 @@ SEES are the camera's, while its reward is still the robot pose meant:
                      JITTER_SHARE of a fresh one each step
     Mimic clips      your hand's shape as the camera saw it, against the
                      pose you were copying (mimic.clips) - appended to the
-                     library's; the held-out ones only tested on
+                     library's, drawn for MIMIC_SHARE of the episodes (by
+                     count they would be under 1%); the held-out ones only
+                     tested on
     recorded clips   not trained on: they have no robot pose to reward
 
 Without "camera skeletons", every goal seen is the clip's own shape.
@@ -85,9 +87,11 @@ REST_SHARE = 0.2
 BIAS_SHARE, JITTER_SHARE = 0.8, 0.6   # of the camera model's spread
 MIMIC_JITTER = 0.01                   # palm lengths, on Mimic goals
 CAMERA = "camera skeletons"
+MIMIC_SHARE = 0.25                    # of episodes, on Mimic clips (with camera skeletons)
 SETTINGS = ("ACTION_SCALE", "FUTURE_STEPS", "ANGLE_SCALE", "TIP_SCALE", "PINCH_SCALE",
             "TIP_WEIGHT", "PINCH_WEIGHT", "TOUCH_SCALE", "TOUCH_WEIGHT", "TARGET_COST",
-            "SMOOTH_COST", "REST_SHARE", "BIAS_SHARE", "JITTER_SHARE", "MIMIC_JITTER")
+            "SMOOTH_COST", "REST_SHARE", "BIAS_SHARE", "JITTER_SHARE", "MIMIC_JITTER",
+            "MIMIC_SHARE")
 
 
 class GpuHandEnv(VecEnv):
@@ -231,9 +235,12 @@ class GpuHandEnv(VecEnv):
         if self.cycle:
             clip = self.clip_choices[envs % len(self.clip_choices)]
         else:
-            pick = torch.randint(0, len(self.clip_choices), (len(envs),),
-                                 generator=self.generator, device=self.device)
-            clip = self.clip_choices[pick]
+            clip = self._draw(self.clip_choices[self.clip_choices < self.generated], len(envs))
+            mimic = self.clip_choices[self.clip_choices >= self.generated]
+            if len(mimic):
+                chosen = torch.rand(len(envs), generator=self.generator,
+                                    device=self.device) < MIMIC_SHARE
+                clip = torch.where(chosen, self._draw(mimic, len(envs)), clip)
         start = self.has_start[clip]
         if self.randomize:
             rest = torch.rand(len(envs), generator=self.generator, device=self.device) < REST_SHARE
@@ -253,6 +260,12 @@ class GpuHandEnv(VecEnv):
         self.change[envs] = 0.0
         self.previous_joints[envs] = qpos[:, self.joint_qpos]
         self.bias[envs] = self._noise((len(envs), FEATURES), 1.0)
+
+    def _draw(self, choices, count):
+        """`count` clips drawn from `choices` at random."""
+        pick = torch.randint(0, len(choices), (count,), generator=self.generator,
+                             device=self.device)
+        return choices[pick]
 
     def _goal(self, offset=0):
         """The shape the reward asks for, `offset` steps on."""

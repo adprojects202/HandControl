@@ -117,15 +117,21 @@ plan stage while it runs; Real to Sim gets it back after.
 
 The sessions teach the hand-motion training what the camera makes of a
 hand (`learning.hand_goals` = "camera skeletons"): a **camera model**
-(`src/learning/camera_model.py`) is fitted to every session's holds - the
-camera's hand shape as the robot pose's shape plus a learnt correction, with
-a spread - and measured on every 5th pose, held out. Each session also
+(`src/learning/camera_model.py`) is fitted to every session's holds - each
+number of the hand shape on its own, a straight line from the robot pose's
+to the camera's, with a spread from its errors on every 5th pose, held out:
+wide where the camera is unsure, narrow on the pinches. (A network fitted
+first did worse on held-out poses with 40 of them - 0.245 vs 0.149 palm
+lengths - and claimed a spread of 0.03.) On the first real session: held-out
+pinches 0.130 palm lengths off, against 0.324 taking the camera's hand as the
+robot's. Each session also
 becomes training clips (`mimic.clips`): resampled to 20 Hz, the pose shown
 moved later by how late your hand followed it (the lag that best lines up
 the pinches' changes). On the GPU the policy then *sees* goals as the camera
 gives them - the library's clips through the camera model with its spread
 as noise (part kept for the episode, part fresh each step), your Mimic clips
-as recorded - while its reward is still the robot pose meant
+as recorded, a quarter of the episodes - while its reward is still the
+robot pose meant
 (`gpu_hand.py`, GOALS). Tested on a synthetic copier 0.4 s late with the
 thumb tip 0.08 palm lengths off: the lag found exactly, and the held-out
 pinches predicted 3x better than taking the camera's hand as the robot's.
