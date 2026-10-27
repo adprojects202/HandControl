@@ -111,7 +111,15 @@ it as a skeleton, and you copy it: 1 s while the robot moves there, 2.5 s
 to get your hand there, 2 s holding, a countdown showing
 (`learning.mimic_prompts` poses, 40 by default: under 4 min).
 `scripts/record_mimic.py` records one in a window of its own, without the
-app, and fits the camera model after. Every camera frame is kept with the pose shown at
+app, and fits the camera model after. With `learning.mimic_mode` = "motions"
+(the default) the robot instead plays library motions - touch sequences,
+signs, fingers in turn - three times slower than the library, without
+stopping, and you follow it along (`learning.mimic_motion_s`): every camera
+frame is a pair of your skeleton and a known robot pose, thousands per
+session instead of a hundred holds; your lag behind the robot is found and
+taken out. Held poses alone (120 of them) gave a skeleton-to-joints mapping
+11 degrees off per joint on held-out poses, but pinches too few: it needs
+many more known poses. Every camera frame is kept with the pose shown at
 its moment and the phase - `data/learning/mimic/<stamp>.npz`. Mimic has the
 plan stage while it runs; Real to Sim gets it back after.
 

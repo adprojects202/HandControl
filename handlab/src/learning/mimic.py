@@ -2,7 +2,8 @@
 pose you meant - so the hand-motion policy can learn from camera skeletons,
 not only from the robot's own shapes.
 
-    session = MimicSession(prompts(count))
+    session = MimicSession(prompts(count))       # poses: copy, then hold
+    session = FollowSession(motions(seconds))     # motions: follow along
     q, phase, number = session.target(seconds)   # the robot pose to show
     session.add(frame, seconds)                  # each new camera frame
     path = session.save(camera_name)             # -> data/learning/mimic/<stamp>.npz
@@ -14,7 +15,8 @@ palm lengths (5th percentile 0.26) - where the robot's touch at 0.14 - so a
 policy that follows the camera's shape faithfully stays 25-30 mm apart. A
 session pairs the camera's skeleton with the pose you were copying.
 
-A session shows `learning.mimic_prompts` key poses of the hand library
+POSES (`learning.mimic_mode` "poses"). A session shows
+`learning.mimic_prompts` key poses of the hand library
 (hand_library.py), half of them the thumb touching fingertips, the rest
 signs and fingers curled (distinct where the library has enough; there are
 some 25 distinct signs and curls, so they come again), in random order. Each: the robot moves there (MOVE_S, minimum-jerk), you get
@@ -27,8 +29,10 @@ HOLD); the holds are the pairs to trust, the rest show the way between.
         (MediaPipe world landmarks, NaN where none); side (N,); present (N,)
         target (N, J) rad: the robot pose shown, its joints in the hand
         model's order; target_shape (N, FEATURES): its shape
-        phase (N,) 0 move, 1 ready, 2 hold; prompt (N,): which pose
-        prompt_kind (P,): touch / sign / curl; prompt_joints (P, J)
+        phase (N,) 0 move, 1 ready, 2 hold, 3 follow; prompt (N,): which
+        pose (or motion)
+        prompt_kind (P,): touch / sign / curl (or the motion's library
+        kind); prompt_joints (P, J): each pose (or motion's first)
         camera, made
 """
 
@@ -45,7 +49,10 @@ from .handmotion import RATE, TOUCH_PL, followed, human_features
 FOLDER = ROOT / "data" / "learning" / "mimic"
 # Slow enough to copy a pose properly (0.8 / 1.2 / 1.5 s was too quick).
 MOVE_S, READY_S, HOLD_S = 1.0, 2.5, 2.0
-MOVE, READY, HOLD = 0, 1, 2
+MOVE, READY, HOLD, FOLLOW = 0, 1, 2, 3
+SLOW = 3.0                    # motions play this many times slower than the library's
+JOIN_S = 1.0                  # from one motion's end to the next's start
+FOLLOWED = ("touch", "gesture", "wave")   # library kinds a hand can follow
 TOUCH_SHARE = 0.5
 DISTINCT = 0.15               # rad: key poses closer than this (mean per joint) count once
 CLIP_S = 6.0                  # training clips: pieces of a session
@@ -151,6 +158,73 @@ class MimicSession:
             prompt_joints=self.joints.astype(np.float32), camera=np.array(camera),
             made=np.array(datetime.now().isoformat(timespec="seconds")))
         return path
+
+
+def motions(seconds, seed=None, library=None):
+    """Library motions a hand can follow (FOLLOWED kinds), SLOW times slower,
+    one after another for at least `seconds`, joined by JOIN_S minimum-jerk
+    moves: (joints (T, J) at RATE, motion number per frame (T,), kinds (M,),
+    first joints (M, J))."""
+    library = library or hand_library.load()
+    if "key_first" not in library:
+        raise RuntimeError("build the hand library first (Learning, learn: hand motion)")
+    rng = np.random.default_rng(seed)
+    pool = np.flatnonzero(np.isin(library["kind"], FOLLOWED))
+    first = library["key_first"]
+    joints, numbers, kinds, starts = [], [], [], []
+    while sum(len(j) for j in joints) < seconds * RATE:
+        clip = int(rng.choice(pool))
+        keys = slice(first[clip], first[clip + 1])
+        moving = hand_library.frames(library["key_joints"][keys],
+                                     np.round(library["key_hold"][keys] * SLOW),
+                                     np.round(library["key_move"][keys] * SLOW))
+        before = joints[-1][-1] if joints else np.zeros_like(moving[0])
+        steps = round(JOIN_S * RATE)
+        s = (np.arange(1, steps + 1) / steps)[:, None]
+        join = before + (moving[0] - before) * (10 * s ** 3 - 15 * s ** 4 + 6 * s ** 5)
+        joints.append(np.concatenate([join, moving]))
+        numbers.append(np.full(len(joints[-1]), len(kinds)))
+        kinds.append(str(library["kind"][clip]))
+        starts.append(moving[0])
+    return (np.concatenate(joints).astype(float), np.concatenate(numbers), np.array(kinds),
+            np.array(starts))
+
+
+class FollowSession(MimicSession):
+    """MOTIONS (`learning.mimic_mode` "motions"): the robot plays library
+    motions slowly and without stopping (motions()), and you follow along -
+    every camera frame a pair, phase FOLLOW; your lag behind the robot is
+    found and taken out when the session becomes training clips (clips())."""
+
+    def __init__(self, moving):
+        self.trajectory, self.numbers, self.kinds, self.joints = moving
+        self.shapes = None
+        self.rows = []
+        self._last_frame = None
+
+    @property
+    def length_s(self):
+        return (len(self.trajectory) - 1) / RATE
+
+    def left(self, seconds):
+        return max(0.0, self.length_s - seconds)
+
+    def target(self, seconds):
+        if seconds >= self.length_s:
+            return None
+        at = seconds * RATE
+        row = int(at)
+        q = self.trajectory[row] + (self.trajectory[row + 1] - self.trajectory[row]) * (at - row)
+        return q, FOLLOW, int(self.numbers[row])
+
+
+def session(seed=None):
+    """A new session as `learning.mimic_mode` says: poses or motions."""
+    from .. import settings
+
+    if settings.get("learning.mimic_mode") == "motions":
+        return FollowSession(motions(settings.get("learning.mimic_motion_s"), seed))
+    return MimicSession(prompts(settings.get("learning.mimic_prompts"), seed))
 
 
 def sessions():

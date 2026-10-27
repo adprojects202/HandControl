@@ -224,7 +224,9 @@ DEFAULTS = {
         "iterations": 1500,     # ppo rounds; ~5 s each with 2048 copies (M4 Max)
         "teacher_rounds": 4,    # planner_teacher rounds; ~20 min each (170 motions)
         "run": "",              # the tracker run Real to Sim's Run policy uses; "" = the newest
-        "mimic_prompts": 40,    # poses in a Mimic session (Vision panel), 5.5 s each
+        "mimic_mode": "motions",   # Mimic: "motions" - follow the robot along; "poses" - copy and hold
+        "mimic_motion_s": 300,  # length of a "motions" session, s
+        "mimic_prompts": 40,    # poses in a "poses" session, 5.5 s each
         # The goals a hand-motion policy sees while it trains: "robot shapes"
         # - the clips' own; "camera skeletons" - as the camera gives a hand
         # copying them (Mimic sessions; learning/gpu_hand.py GOALS).
@@ -334,6 +336,7 @@ RANGES = {
     "learning.teacher_rounds": (1, 50),
     "learning.gpu_envs": (64, 65_536),
     "learning.mimic_prompts": (10, 500),
+    "learning.mimic_motion_s": (30, 1800),
 }
 # What a value may be, from a list. Anything else falls back to the default.
 CHOICES = {
@@ -353,6 +356,7 @@ CHOICES = {
     "learning.method": ("ppo", "planner_teacher"),
     "learning.learn": ("object tracking", "hand motion"),
     "learning.hand_goals": ("robot shapes", "camera skeletons"),
+    "learning.mimic_mode": ("motions", "poses"),
 }
 
 

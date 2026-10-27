@@ -2,10 +2,12 @@
 
     python scripts/record_mimic.py
 
-Left, the camera with your tracked hand; right, the robot hand in the pose
-to copy. Copy each pose with your hand (left is best) and hold it while the
-bar is green - when the robot's fingertips touch, touch yours. `learning.
-mimic_prompts` poses (3.5 s each). q or Esc stops and keeps what was
+Left, the camera with your tracked hand; right, the robot hand. As
+`learning.mimic_mode` says: "motions" - the robot moves through library
+motions, slowly and without stopping, and you follow it along
+(`learning.mimic_motion_s` long); "poses" - copy each pose with your hand
+and hold it while the label is green (`learning.mimic_prompts` poses). Your
+left hand is best; when the robot's fingertips touch, touch yours. q or Esc stops and keeps what was
 recorded; d discards it. Saved to data/learning/mimic/<stamp>.npz like a
 session from the Vision panel (src/learning/mimic.py); then, with enough
 poses, the camera model is fitted to every session so far and its held-out
@@ -30,14 +32,14 @@ from src.vision import Camera  # noqa: E402
 
 SIZE = (640, 480)                       # each half of the window
 WINDOW = "Mimic - copy the robot (q: stop and keep, d: discard)"
-SAY = {mimic.MOVE: "watch the robot", mimic.READY: "copy it", mimic.HOLD: "HOLD"}
+SAY = {mimic.MOVE: "watch the robot", mimic.READY: "copy it", mimic.HOLD: "HOLD",
+       mimic.FOLLOW: "follow the robot"}
 GREEN, AMBER, RED = (80, 220, 80), (60, 190, 245), (60, 60, 230)      # BGR
 
 
 def main():
-    count = settings.get("learning.mimic_prompts")
-    print(f"{count} poses, {count * (mimic.MOVE_S + mimic.READY_S + mimic.HOLD_S):.0f} s")
-    session = mimic.MimicSession(mimic.prompts(count))
+    session = mimic.session()
+    print(f"{settings.get('learning.mimic_mode')}: {session.length_s:.0f} s")
     model = hand_spec()[0].compile()
     data = mujoco.MjData(model)
     renderer = mujoco.Renderer(model, SIZE[1], SIZE[0])
@@ -94,6 +96,12 @@ def main():
         return
     held = [row for row in session.rows if row[5] == mimic.HOLD]
     seen = sum(row[3] for row in held) / max(1, len(held))
+    if isinstance(session, mimic.FollowSession):
+        present = sum(row[3] for row in session.rows) / max(1, len(session.rows))
+        lag = mimic.clips([path]).get("lag", [float("nan")])[0]
+        print(f"saved {path}: {len(session.rows)} frames, your hand seen in {present:.0%}, "
+              f"following {lag:.2f} s behind the robot")
+        return
     print(f"saved {path}: {len(session.rows)} frames, your hand seen in {seen:.0%} of the holds")
     try:
         report = camera_model.fit()
@@ -110,8 +118,8 @@ def _label(screen, session, now, phase, number, seen):
     a hand is seen."""
     kind = str(session.kinds[number])
     colour = GREEN if phase == mimic.HOLD else AMBER
-    text = (f"pose {number + 1}/{len(session.joints)}  {SAY[phase]} "
-            f"{session.left(now):.1f}s  ({kind})")
+    text = (f"{'motion' if phase == mimic.FOLLOW else 'pose'} {number + 1}/{len(session.joints)}"
+            f"  {SAY[phase]} {session.left(now):.1f}s  ({kind})")
     cv2.putText(screen, text, (SIZE[0] + 16, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 4,
                 cv2.LINE_AA)
     cv2.putText(screen, text, (SIZE[0] + 16, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, colour, 2,

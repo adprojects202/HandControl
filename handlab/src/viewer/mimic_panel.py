@@ -22,8 +22,9 @@ from ..learning.handmotion import followed, in_palm, mount_palm, on_robot
 from .form import GREEN, RED, SettingsForm, row, table
 
 SAY = {mimic.MOVE: "watch the robot", mimic.READY: "copy it with your hand",
-       mimic.HOLD: "hold it"}
-KIND = {"touch": "fingertips touch", "sign": "a hand sign", "curl": "fingers curled"}
+       mimic.HOLD: "hold it", mimic.FOLLOW: "follow the robot"}
+KIND = {"touch": "fingertips touch", "sign": "a hand sign", "curl": "fingers curled",
+        "gesture": "hand signs", "wave": "fingers in turn"}
 
 
 class MimicSection:
@@ -67,10 +68,20 @@ class MimicSection:
                              "makes of your hand")
         imgui.SameLine()
         if table("mimic"):
-            low, high = settings.limits("learning.mimic_prompts")
-            row("poses", f"poses in a session, {mimic.MOVE_S + mimic.READY_S + mimic.HOLD_S:.1f}"
-                         f" s each\n{low} - {high}")
-            self.form.field("learning.mimic_prompts")
+            row("mode", "motions - the robot moves through library motions slowly, without "
+                        "stopping, and you follow it along: every frame a pair\n"
+                        "poses - copy each pose and hold it")
+            self.form.choice("learning.mimic_mode")
+            if settings.get("learning.mimic_mode") == "motions":
+                low, high = settings.limits("learning.mimic_motion_s")
+                row("length (s)", f"how long a session is\n{low} - {high}")
+                self.form.field("learning.mimic_motion_s")
+            else:
+                low, high = settings.limits("learning.mimic_prompts")
+                row("poses", f"poses in a session, "
+                             f"{mimic.MOVE_S + mimic.READY_S + mimic.HOLD_S:.1f} s each\n"
+                             f"{low} - {high}")
+                self.form.field("learning.mimic_prompts")
             imgui.EndTable()
         if self._saved is None:
             paths = mimic.sessions()
@@ -96,10 +107,10 @@ class MimicSection:
         self.show_prompt((q, None, None), skeleton)
         total = len(self.session.joints)
         imgui.ProgressBar(now / self.session.length_s, imgui.Vec2(-1, 0),
-                          f"pose {number + 1} of {total}")
+                          f"{'motion' if phase == mimic.FOLLOW else 'pose'} {number + 1} of {total}")
         colour = GREEN if phase == mimic.HOLD else imgui.Vec4(0.95, 0.75, 0.30, 1.0)
         imgui.TextColored(colour, f"{SAY[phase]} - {self.session.left(now):.1f} s - "
-                                  f"{KIND[str(self.session.kinds[number])]}")
+                                  f"{KIND.get(str(self.session.kinds[number]), '')}")
         if hand is None:
             imgui.TextColored(RED, "no hand in view")
         if imgui.Button("Stop"):
@@ -112,7 +123,7 @@ class MimicSection:
     def _start(self):
         self.message = self.error = ""
         try:
-            prompted = mimic.prompts(settings.get("learning.mimic_prompts"))
+            session = mimic.session()
         except RuntimeError as failure:
             self.error = str(failure)
             return
@@ -120,7 +131,7 @@ class MimicSection:
         self._camera_was_off = not settings.get("vision.enabled")
         if self._camera_was_off:
             self.form.save("vision.enabled", True)
-        self.session = mimic.MimicSession(prompted)
+        self.session = session
         self.started = time.monotonic()
 
     def _finish(self, keep):
@@ -132,8 +143,9 @@ class MimicSection:
             self.message = "discarded"
             return
         path = session.save(self.camera_name())
-        held = [row_ for row_ in session.rows if row_[5] == mimic.HOLD]
+        held = [row_ for row_ in session.rows if row_[5] in (mimic.HOLD, mimic.FOLLOW)]
         seen = sum(row_[3] for row_ in held) / max(1, len(held))
         self.message = (f"saved {path.name}: {len(session.rows)} frames, your hand seen in "
-                        f"{seen:.0%} of the holds" if path else "nothing recorded")
+                        f"{seen:.0%} of the {'frames' if isinstance(session, mimic.FollowSession) else 'holds'}"
+                        if path else "nothing recorded")
         self._saved = None
