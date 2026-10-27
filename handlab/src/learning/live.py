@@ -4,13 +4,21 @@ servo targets the joint targets.
 
     live = LiveHand(camera, send, names)
     live.start()          # the run learning.hand_run names, else the newest
-    live.running, live.status, live.error, live.side, live.angle_deg
+    live.running, live.status, live.error, live.side, live.angle_deg, live.touching
     live.stop()
 
 A thread steps at RATE (the policy's 20 Hz): it takes the newest camera
 frame's hand - the left one when both are seen (the robot is a left hand),
-else the one seen, a right hand mirrored onto the left - as the shape to
-take; the policy moves the hand sim's servo targets one step
+else the one seen, a right hand mirrored onto the left - and turns it into
+the shape to take, as `learning.live_input` says:
+
+    mapping       through the retargeting (retarget.py, fitted to your
+                  Mimic sessions): the robot pose you mean, the thumb put on
+                  the fingertips you pinch - so a pinch is a pinch
+    camera shape  your hand's own shape (handmotion.human_features): the
+                  robot's hand is built otherwise, and pinches stay open
+
+The policy moves the hand sim's servo targets one step
 (hand_follow.CpuHandEnv), and `send(targets)` gets them, in the robot's
 joint order. With no hand in view, the hand holds where it is. Live, only
 the shape now is known, so the policy is aimed at it for every step ahead
@@ -29,8 +37,10 @@ import time
 import numpy as np
 import torch
 
+from .. import settings
+from . import retarget
 from .hand_follow import CpuHandEnv, load_policy
-from .handmotion import FEATURES, RATE, errors, followed, human_features
+from .handmotion import FEATURES, RATE, Kinematics, errors, followed, human_features
 from .train import chosen_run
 
 HAND = "hand motion"
@@ -46,8 +56,11 @@ class LiveHand:
         self.status = "off"
         self.error = ""
         self.side = None                 # the hand followed now, or None
-        self.angle_deg = np.nan          # the robot's shape off the person's
+        self.angle_deg = np.nan          # the robot's shape off the shape to take
+        self.touching = ()               # fingers the mapping has the thumb on
         self.run = None
+        self.mapping = None              # retarget.Retarget, when it is used
+        self._pose = None                # the last pose the mapping made
         self._thread = None
         self._stop = threading.Event()
 
@@ -63,6 +76,15 @@ class LiveHand:
         if self.run is None:
             self.error = "no hand-motion run yet (Learning, learn: hand motion)"
             return False
+        self.mapping = None
+        if settings.get("learning.live_input") == "mapping":
+            fitted = retarget.load()
+            if not fitted:
+                self.error = ("no mapping fitted yet - record a Mimic session, then Fit "
+                              "mapping (or choose: input camera shape)")
+                return False
+            self.mapping = retarget.Retarget(fitted)
+        self._pose = None
         self.error, self.status = "", "loading the policy"
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, args=(self.run, self._stop),
@@ -83,10 +105,11 @@ class LiveHand:
             if env.joint_names != self.names:
                 raise RuntimeError("the hand sim's joints are not the robot's order")
             policy = load_policy(env, run)
+            kinematics = Kinematics(env.model, env.chain, env.palm)
             period = 1.0 / RATE
             due = time.monotonic()
             while not stop.is_set():
-                self._step(env, policy)
+                self._step(env, policy, kinematics)
                 due += period
                 wait = due - time.monotonic()
                 if wait < 0:                       # fell behind: start counting afresh
@@ -96,7 +119,7 @@ class LiveHand:
             self.error = str(failure) or type(failure).__name__
             self.status = "stopped"
 
-    def _step(self, env, policy):
+    def _step(self, env, policy, kinematics):
         frame = self.camera.latest()
         if frame is None:
             self.status, self.side = "waiting for the camera", None
@@ -105,10 +128,16 @@ class LiveHand:
         if hand is None:
             self.status, self.side = "no hand in view - holding", None
             return
-        env.aim(human_features(hand.world.astype(float), hand.side))
+        world = hand.world.astype(float)
+        if self.mapping is None:
+            env.aim(human_features(world, hand.side))
+        else:
+            self._pose, self.touching = self.mapping.pose(world, hand.side, self._pose)
+            env.aim(kinematics.shapes(self._pose[None])[0])
         with torch.inference_mode():
             env.step(policy(env.get_observations()))
         self.send(env.targets.copy())
         angle, _, _ = errors(env.shape_now(), env.goal())
         self.side, self.angle_deg = hand.side, float(np.degrees(angle[0]))
-        self.status = f"following your {hand.side.lower()} hand"
+        through = " through the mapping" if self.mapping is not None else ""
+        self.status = f"following your {hand.side.lower()} hand{through}"

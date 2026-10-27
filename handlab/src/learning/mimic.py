@@ -73,7 +73,7 @@ def prompts(count, seed=None, library=None):
                             np.diff(library["key_first"])[~library["recorded"]])
     keep = np.isin(kind_of_key, ("touch", "gesture", "wave"))
     joints = library["key_joints"][keep]
-    shapes = hand_library._Hand().kinematics.shapes(joints)
+    shapes = hand_library.HandModel().kinematics.shapes(joints)
     touch = shapes[:, -3:].min(axis=1) < TOUCH_PL
     kinds = np.where(touch, "touch", np.where(kind_of_key[keep] == "gesture", "sign", "curl"))
     chosen = []
@@ -147,7 +147,7 @@ class MimicSession:
             return None
         times, world, side, present, number, phase = (np.array(c) for c in zip(*self.rows))
         target = np.array([self.target(t)[0] for t in times])
-        target_shape = hand_library._Hand().kinematics.shapes(target)
+        target_shape = hand_library.HandModel().kinematics.shapes(target)
         FOLDER.mkdir(parents=True, exist_ok=True)
         path = FOLDER / f"{datetime.now():%Y%m%d-%H%M%S}.npz"
         np.savez_compressed(
@@ -244,9 +244,9 @@ def clips(paths=None):
     clip's first row; held_out (K,): only tested on - the last session's
     clips when there are more, else every HELD_OUT-th; lag (S,) s per
     session}. Only where your hand was seen throughout."""
-    from .hand_library import _Hand
+    from .hand_library import HandModel
 
-    kinematics = _Hand().kinematics
+    kinematics = HandModel().kinematics
     paths = list(paths if paths is not None else sessions())
     target, seen, first, held, lags = [], [], [0], [], []
     for number, path in enumerate(paths):

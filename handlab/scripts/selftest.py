@@ -1723,7 +1723,7 @@ def hand_library_makes_real_touches_and_keeps_clips_as_key_poses():
     from src.learning import hand_library
     from src.learning.handmotion import TOUCH_PL
     rng = np.random.default_rng(0)
-    hand = hand_library._Hand()
+    hand = hand_library.HandModel()
     # A touch is made in the sim: the thumb's last link on the index's.
     poses = [hand_library._touch_pose(hand, ("index",), rng) for _ in range(5)]
     assert any(pose is not None for pose in poses), "no touch made in 5 tries"
@@ -1754,7 +1754,7 @@ def mimic_sessions_find_the_lag_and_the_camera_model_learns_the_pinch():
     from src.learning.handmotion import robot_points
     from src.vision.tracker import Hand
     lag_s, bias = 0.4, 0.08               # a copier 0.4 s late, its thumb tip 0.08 off
-    hand = hand_library._Hand()
+    hand = hand_library.HandModel()
     rng = np.random.default_rng(0)
 
     def landmarks(q):
@@ -1792,6 +1792,50 @@ def mimic_sessions_find_the_lag_and_the_camera_model_learns_the_pinch():
             assert clips["held_out"].any() and not clips["held_out"].all()
             report = camera_model.fit(paths=paths, path=tmp / "camera_model.npz")
             assert report["pinch_error"] < 0.6 * report["identity_pinch_error"], report
+        finally:
+            mimic.FOLDER = saved
+
+
+@check
+def the_mapping_learns_robot_joints_and_touches_from_a_follow_session():
+    import types
+    from src.learning import hand_library, mimic, retarget
+    from src.learning.handmotion import robot_points
+    from src.vision.tracker import Hand
+    hand = hand_library.HandModel()
+    rng = np.random.default_rng(0)
+
+    def landmarks(q):
+        """The robot's own points as a person's hand: a copier built like it."""
+        hand.data.qpos[:] = q
+        mujoco.mj_kinematics(hand.model, hand.data)
+        points = robot_points(hand.model, hand.data, hand.chain, hand.palm)
+        world = np.zeros((21, 3))
+        world[1:17] = points
+        world[17:21] = points[12:16] + (points[12:16] - points[8:12])
+        return (world + rng.normal(0, 0.005, world.shape)) * 0.08
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        hand_library.build(sizes={"random": 1, "touch": 6, "gesture": 4, "wave": 2},
+                           path=tmp / "library.npz", recordings=False)
+        library = hand_library.load(tmp / "library.npz")
+        saved, mimic.FOLDER = mimic.FOLDER, tmp / "mimic"
+        try:
+            session = mimic.FollowSession(mimic.motions(90, seed=3, library=library))
+            for n in range(int(session.length_s * 30)):
+                shown = session.target(max(0.0, n / 30 - 0.3))
+                q = shown[0] if shown else session.trajectory[-1]
+                session.add(types.SimpleNamespace(number=n, hands=[
+                    Hand("Left", 0.9, np.zeros((21, 3)), landmarks(q))]), n / 30)
+            path = session.save("synthetic")
+            report = retarget.fit(path=tmp / "retarget.npz", paths=[path], steps=2000)
+            assert report["joints_deg"] < 6.0, report
+            assert report["touches_made_when_meant"] > 0.6, report
+            assert report["touches_made_when_not"] < 0.15, report
+            mapping = retarget.Retarget(retarget.load(tmp / "retarget.npz"), hand)
+            q, fingers = mapping.pose(landmarks(session.trajectory[100]), "Left")
+            assert q.shape == (hand.model.nq,) and set(fingers) <= set(retarget.FINGERS)
         finally:
             mimic.FOLDER = saved
 

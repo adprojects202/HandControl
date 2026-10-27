@@ -224,6 +224,7 @@ DEFAULTS = {
         "iterations": 1500,     # ppo rounds; ~5 s each with 2048 copies (M4 Max)
         "teacher_rounds": 4,    # planner_teacher rounds; ~20 min each (170 motions)
         "run": "",              # the tracker run Real to Sim's Run policy uses; "" = the newest
+        "live_input": "mapping",   # Live follows: "mapping" (retarget.py) or "camera shape"
         "mimic_mode": "motions",   # Mimic: "motions" - follow the robot along; "poses" - copy and hold
         "mimic_motion_s": 300,  # length of a "motions" session, s
         "mimic_prompts": 40,    # poses in a "poses" session, 5.5 s each
@@ -357,6 +358,7 @@ CHOICES = {
     "learning.learn": ("object tracking", "hand motion"),
     "learning.hand_goals": ("robot shapes", "camera skeletons"),
     "learning.mimic_mode": ("motions", "poses"),
+    "learning.live_input": ("mapping", "camera shape"),
 }
 
 

@@ -82,13 +82,36 @@ and friction. Showing/hiding or resizing the object rebuilds the model, which th
 window shows as a brief reload - Studio's renderer reads geometry only when a
 model loads. To add something to the world, add it in `_build`.
 
+## Retargeting: your hand to the robot's joints
+
+Your hand and the robot's are built differently - its thumb sits much
+lower and its fingers are longer for its palm - so no robot pose has a
+pinching person's hand shape: following the camera's hand shape, the
+hand-motion policy made 0% of your held-out pinches (given the robot pose
+you meant instead, 97% once into the pinch). The **mapping**
+(`src/learning/retarget.py`) goes from what the camera sees of your hand to
+the robot's **joints** - what you mean - learnt from Mimic sessions: in, the
+21 landmarks in the palm's frame; out, the 16 joint angles of the robot pose
+shown (your lag taken out) and, per finger, whether the thumb touches it. A
+small network, fitted in ~30 s on this Mac, measured first on what it was
+not fitted to (every 5th 6 s stretch of a follow session, every 5th held
+pose). Joint angles alone average a pinch short of touching, so when the
+touch head says you pinch, inverse kinematics puts the robot's thumb tip on
+those fingertips - the robot's own touch, whatever your thumb's shape. On
+your sessions (12,685 pairs, one 3-minute follow session and 120 held
+poses), held out: joints 10.6 degrees off; the poses touch on 74% of the
+frames you pinched, 7% where you did not. `scripts/record_mimic.py` fits it
+after each session; *Fit mapping* in Live does too.
+
 ## Live hand control
 
 *Start live* (Vision panel, under Camera; `src/learning/live.py`) turns the camera on and
 has the trained hand-motion policy follow your hand, as you move it: a
 thread at the policy's 20 Hz takes the newest frame's hand (the left one
 when both are seen - the robot is a left hand - a right one mirrored onto
-it), aims the policy at its shape, steps a hand sim on this Mac's CPU, and
+it), aims the policy at the shape to take - through the mapping
+(`learning.live_input` = "mapping", the default; see *Retargeting*) or your
+hand's own shape ("camera shape") - steps a hand sim on this Mac's CPU, and
 sets the joint targets to its servo targets - the purple command hand. With
 no hand in view the hand holds. Live, only the shape now is known, so the
 policy is aimed at it for every step ahead: it follows a little later than
@@ -756,7 +779,7 @@ All take no arguments and read `settings.json`.
 | `scripts/render.py` | `renders/world.png` - the world without a window |
 | `scripts/build_library.py` | the tracker's trajectory library from the recordings (about 30 min; also the Learning panel's *Build library*) |
 | `scripts/build_hand_library.py` | the hand-motion library: random poses, touches, signs, waves and every recorded hand (about 4 min; also *Build library* learning hand motion) |
-| `scripts/record_mimic.py` | a Mimic session in its own window (camera left, the pose to copy right), then the camera model's fit |
+| `scripts/record_mimic.py` | a Mimic session in its own window (camera left, the robot right; follow its motions, or copy and hold poses), then the mapping's fit |
 | `scripts/clearml_train.py` | trains on the ClearML agent's GPU as a pipeline and fetches the run (also *Train on ClearML*) |
 | `scripts/clearml_gpu_step.py` | the GPU training step - run by the agent, not by hand |
 | `scripts/train_tracker.py` | trains the general tracker on this Mac by `learning.*`, then tests it on every motion (also the Learning panel's *Train*) |
@@ -817,6 +840,9 @@ src/
   learning/gpu_hand.py    the hand-motion environment on the GPU, PPO, test
   learning/hand_follow.py the hand-motion policy on this Mac (CpuHandEnv)
   learning/live.py        Live: the policy following the camera's hand
+  learning/mimic.py       Mimic sessions: your hand on camera with the robot pose meant
+  learning/retarget.py    the mapping: your hand to the robot's joints, touches made
+  learning/camera_model.py what the camera makes of a robot pose (camera-skeleton training)
   keys.py                 secrets (API keys, HF_TOKEN): environment, then .env
   assistant/claude.py     Anthropic Messages API
   assistant/openai_api.py OpenAI Responses API

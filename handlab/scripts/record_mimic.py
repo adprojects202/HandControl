@@ -9,9 +9,9 @@ motions, slowly and without stopping, and you follow it along
 and hold it while the label is green (`learning.mimic_prompts` poses). Your
 left hand is best; when the robot's fingertips touch, touch yours. q or Esc stops and keeps what was
 recorded; d discards it. Saved to data/learning/mimic/<stamp>.npz like a
-session from the Vision panel (src/learning/mimic.py); then, with enough
-poses, the camera model is fitted to every session so far and its held-out
-fit printed (src/learning/camera_model.py).
+session from the Vision panel (src/learning/mimic.py); then the mapping from
+your hand to the robot's joints is fitted to every session so far and how it
+does on the held-out part printed (src/learning/retarget.py) - Live uses it.
 """
 
 import sys
@@ -25,7 +25,7 @@ import mujoco  # noqa: E402
 import numpy as np  # noqa: E402
 
 from src import settings  # noqa: E402
-from src.learning import camera_model, mimic  # noqa: E402
+from src.learning import mimic, retarget  # noqa: E402
 from src.learning.handmotion import followed  # noqa: E402
 from src.sim.task import hand_spec  # noqa: E402
 from src.vision import Camera  # noqa: E402
@@ -101,16 +101,14 @@ def main():
         lag = mimic.clips([path]).get("lag", [float("nan")])[0]
         print(f"saved {path}: {len(session.rows)} frames, your hand seen in {present:.0%}, "
               f"following {lag:.2f} s behind the robot")
-        return
-    print(f"saved {path}: {len(session.rows)} frames, your hand seen in {seen:.0%} of the holds")
-    try:
-        report = camera_model.fit()
-    except RuntimeError as failure:
-        print(f"camera model not fitted: {failure}")
-        return
-    print(f"camera model, {report['poses']} poses so far; on {report['held_out_poses']} held "
-          f"out: pinches {report['pinch_error']:.3f} palm lengths off, against "
-          f"{report['identity_pinch_error']:.3f} taking the camera's hand as the robot's")
+    else:
+        print(f"saved {path}: {len(session.rows)} frames, your hand seen in {seen:.0%} of "
+              "the holds")
+    print("fitting the mapping to every session (about 30 s) ...")
+    report = retarget.fit()
+    print(f"mapping, {report['pairs']} pairs; on the {report['held_out']} held out: joints "
+          f"{report['joints_deg']:.1f} deg off, pinches made {report['touches_made_when_meant']:.0%} "
+          f"(false {report['touches_made_when_not']:.0%})")
 
 
 def _label(screen, session, now, phase, number, seen):

@@ -116,7 +116,7 @@ def build(progress=lambda done, total, text="": None, seed=SEED, sizes=None, pat
     and add every recorded hand; saved to `path`. Returns a summary."""
     sizes = {**SIZES, **(sizes or {})}
     rng = np.random.default_rng(seed)
-    hand = _Hand()
+    hand = HandModel()
     clips = []                              # (kind, source, keys or features)
     bank = _bank(hand, rng, min(BANK, max(sizes.values())), progress)
     makers = {"random": _random_clip, "touch": _touch_clip, "gesture": _gesture_clip,
@@ -222,9 +222,11 @@ def export_bundle(folder, progress=lambda done, total, text="": None):
 
 
 # ------------------------------------------------------------------ the hand
-class _Hand:
+class HandModel:
     """The hand sim, for making key poses: its joints by finger, settling
-    into a pose with the servos, touching, reaching with the thumb."""
+    into a pose with the servos, touching, reaching with the thumb - and the
+    shapes of poses (`kinematics`). Used by the library, Mimic and
+    retargeting."""
 
     TIPS = {"thumb": 3, "index": 7, "middle": 11, "ring": 15}     # in robot_chain's order
     ORDER = {"thumb": ("proximal", "adduction", "middle", "distal"),
@@ -271,9 +273,11 @@ class _Hand:
         mujoco.mj_forward(self.model, self.data)
         return not any(c.efc_address >= 0 for c in self.data.contact[:self.data.ncon])
 
-    def reach(self, q, fingers, rng):
+    def reach(self, q, fingers, rng=None, starts=3):
         """`q` with the thumb and `fingers` moved so the thumb tip is on each
-        of their tips (best of three starts)."""
+        of their tips: the best of `starts` searches, each from `q` jittered
+        by `rng` (without one, a single search from `q` itself - quick, for
+        a pose near the last)."""
         moved = self.joints["thumb"] + [j for f in fingers for j in self.joints[f]]
         low, high = self.low[moved], self.high[moved]
 
@@ -285,8 +289,9 @@ class _Hand:
             return np.concatenate(gaps + [0.002 * (x - start)])
 
         best = None
-        for _ in range(3):
-            start = np.clip(q[moved] + rng.normal(0, 0.2, len(moved)), low, high)
+        for _ in range(starts if rng is not None else 1):
+            jitter = rng.normal(0, 0.2, len(moved)) if rng is not None else 0.0
+            start = np.clip(q[moved] + jitter, low, high)
             found = least_squares(apart, start, bounds=(low, high))
             if best is None or found.cost < best.cost:
                 best = found
