@@ -43,7 +43,8 @@ from . import hand_library
 from .handmotion import RATE, TOUCH_PL, followed, human_features
 
 FOLDER = ROOT / "data" / "learning" / "mimic"
-MOVE_S, READY_S, HOLD_S = 0.8, 1.2, 1.5
+# Slow enough to copy a pose properly (0.8 / 1.2 / 1.5 s was too quick).
+MOVE_S, READY_S, HOLD_S = 1.0, 2.5, 2.0
 MOVE, READY, HOLD = 0, 1, 2
 TOUCH_SHARE = 0.5
 DISTINCT = 0.15               # rad: key poses closer than this (mean per joint) count once
@@ -96,6 +97,14 @@ class MimicSession:
     @property
     def length_s(self):
         return len(self.joints) * self.period
+
+    def left(self, seconds):
+        """Seconds left in the phase `seconds` into the session."""
+        into = seconds % self.period
+        for end in (MOVE_S, MOVE_S + READY_S, self.period):
+            if into < end:
+                return end - into
+        return 0.0
 
     def target(self, seconds):
         """(robot joints, phase, prompt number) at `seconds` into the session;

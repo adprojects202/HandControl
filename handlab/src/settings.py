@@ -224,7 +224,7 @@ DEFAULTS = {
         "iterations": 1500,     # ppo rounds; ~5 s each with 2048 copies (M4 Max)
         "teacher_rounds": 4,    # planner_teacher rounds; ~20 min each (170 motions)
         "run": "",              # the tracker run Real to Sim's Run policy uses; "" = the newest
-        "mimic_prompts": 80,    # poses in a Mimic session (Vision panel), 3.5 s each
+        "mimic_prompts": 40,    # poses in a Mimic session (Vision panel), 5.5 s each
         # The goals a hand-motion policy sees while it trains: "robot shapes"
         # - the clips' own; "camera skeletons" - as the camera gives a hand
         # copying them (Mimic sessions; learning/gpu_hand.py GOALS).

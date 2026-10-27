@@ -98,7 +98,8 @@ class MimicSection:
         imgui.ProgressBar(now / self.session.length_s, imgui.Vec2(-1, 0),
                           f"pose {number + 1} of {total}")
         colour = GREEN if phase == mimic.HOLD else imgui.Vec4(0.95, 0.75, 0.30, 1.0)
-        imgui.TextColored(colour, f"{SAY[phase]} - {KIND[str(self.session.kinds[number])]}")
+        imgui.TextColored(colour, f"{SAY[phase]} - {self.session.left(now):.1f} s - "
+                                  f"{KIND[str(self.session.kinds[number])]}")
         if hand is None:
             imgui.TextColored(RED, "no hand in view")
         if imgui.Button("Stop"):

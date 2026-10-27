@@ -107,9 +107,11 @@ the camera's hand shape faithfully stays 25-30 mm short of a pinch. A
 camera makes of your hand next to the pose you meant: the robot on the plan
 stage shows a key pose of the hand library - half of them the thumb
 touching fingertips, the rest signs and fingers curled - your hand stands on
-it as a skeleton, and you copy it: 0.8 s while the robot moves there, 1.2 s
-to get your hand there, 1.5 s holding (`learning.mimic_prompts` poses, 80 by
-default: under 5 min). Every camera frame is kept with the pose shown at
+it as a skeleton, and you copy it: 1 s while the robot moves there, 2.5 s
+to get your hand there, 2 s holding, a countdown showing
+(`learning.mimic_prompts` poses, 40 by default: under 4 min).
+`scripts/record_mimic.py` records one in a window of its own, without the
+app, and fits the camera model after. Every camera frame is kept with the pose shown at
 its moment and the phase - `data/learning/mimic/<stamp>.npz`. Mimic has the
 plan stage while it runs; Real to Sim gets it back after.
 
@@ -740,6 +742,7 @@ All take no arguments and read `settings.json`.
 | `scripts/render.py` | `renders/world.png` - the world without a window |
 | `scripts/build_library.py` | the tracker's trajectory library from the recordings (about 30 min; also the Learning panel's *Build library*) |
 | `scripts/build_hand_library.py` | the hand-motion library: random poses, touches, signs, waves and every recorded hand (about 4 min; also *Build library* learning hand motion) |
+| `scripts/record_mimic.py` | a Mimic session in its own window (camera left, the pose to copy right), then the camera model's fit |
 | `scripts/clearml_train.py` | trains on the ClearML agent's GPU as a pipeline and fetches the run (also *Train on ClearML*) |
 | `scripts/clearml_gpu_step.py` | the GPU training step - run by the agent, not by hand |
 | `scripts/train_tracker.py` | trains the general tracker on this Mac by `learning.*`, then tests it on every motion (also the Learning panel's *Train*) |
