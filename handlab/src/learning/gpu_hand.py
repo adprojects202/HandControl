@@ -48,7 +48,12 @@ SEES are the camera's, while its reward is still the robot pose meant:
                      tested on
     recorded clips   not trained on: they have no robot pose to reward
 
-Without "camera skeletons", every goal seen is the clip's own shape.
+Without "camera skeletons", every goal seen is the clip's own shape. With
+them, the reward weighs what the camera can tell apart more and what it
+cannot less (CAMERA_WEIGHTS for the angle, tip, pinch and touch terms): the
+camera model's spread on your sessions is narrow on the pinches and wide on
+the fingers' segment directions, and with the robot-shape weights the first
+run settled at ~56 degrees and ~110 mm off touches, learning neither.
 
 The bundle (hand_library.export_bundle, made on the Mac): hand_library.npz,
 the hand sim as MJCF (hand.xml) and bundle.json - its joints, where the
@@ -81,6 +86,7 @@ TIP_WEIGHT = 0.5
 PINCH_WEIGHT = 0.5
 TOUCH_SCALE = 0.03               # palm lengths (~4 mm)
 TOUCH_WEIGHT = 1.0
+CAMERA_WEIGHTS = {"angle": 0.4, "tip": 0.6, "pinch": 1.0, "touch": 2.0}   # with camera skeletons
 TARGET_COST = 0.5
 SMOOTH_COST = 2.0
 REST_SHARE = 0.2
@@ -91,7 +97,7 @@ MIMIC_SHARE = 0.25                    # of episodes, on Mimic clips (with camera
 SETTINGS = ("ACTION_SCALE", "FUTURE_STEPS", "ANGLE_SCALE", "TIP_SCALE", "PINCH_SCALE",
             "TIP_WEIGHT", "PINCH_WEIGHT", "TOUCH_SCALE", "TOUCH_WEIGHT", "TARGET_COST",
             "SMOOTH_COST", "REST_SHARE", "BIAS_SHARE", "JITTER_SHARE", "MIMIC_JITTER",
-            "MIMIC_SHARE")
+            "MIMIC_SHARE", "CAMERA_WEIGHTS")
 
 
 class GpuHandEnv(VecEnv):
@@ -111,6 +117,9 @@ class GpuHandEnv(VecEnv):
         mimic = (dict(np.load(bundle / "mimic_clips.npz")) if self.camera_goals else
                  {"first": np.zeros(1, int), "held_out": np.zeros(0, bool)})
         self.mimic = mimic
+        self.weights = (CAMERA_WEIGHTS if self.camera_goals else
+                        {"angle": 1.0, "tip": TIP_WEIGHT, "pinch": PINCH_WEIGHT,
+                         "touch": TOUCH_WEIGHT})
         self.generated = len(library["length"])
         mimic_lengths = np.diff(mimic["first"])
         lengths = np.concatenate([library["length"], mimic_lengths])
@@ -203,9 +212,11 @@ class GpuHandEnv(VecEnv):
         robot, goal = self.robot_shape(), self._goal()
         angle, tip, pinch = errors(robot, goal)
         touch, touching = touch_error(robot, goal)
-        reward = (torch.exp(-angle / ANGLE_SCALE) + TIP_WEIGHT * torch.exp(-tip / TIP_SCALE)
-                  + PINCH_WEIGHT * torch.exp(-pinch / PINCH_SCALE)
-                  + TOUCH_WEIGHT * torch.exp(-touch / TOUCH_SCALE)
+        weight = self.weights
+        reward = (weight["angle"] * torch.exp(-angle / ANGLE_SCALE)
+                  + weight["tip"] * torch.exp(-tip / TIP_SCALE)
+                  + weight["pinch"] * torch.exp(-pinch / PINCH_SCALE)
+                  + weight["touch"] * torch.exp(-touch / TOUCH_SCALE)
                   - TARGET_COST * (change ** 2).sum(dim=1)
                   - SMOOTH_COST * ((change - self.change) ** 2).sum(dim=1))
         self.change = change
