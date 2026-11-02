@@ -35,6 +35,15 @@ not put fingers inside each other - the hand sim's own collision geometry
 draws between what it shows went 10-25% inside (to its 0-3%). The past is given with noise
 (PAST_NOISE), so rolling the decoder on its own output does not drift.
 
+A point drawn from the prior is drawn at TEMPERATURE: each mode's spread
+narrowed, as Glow's (Kingma & Dhariwal, NeurIPS 2018). At its full spread
+every draw is a new motion - rolled on, the hand ran at twice people's speed
+and never rested (GRAB's people 9-10: 42 deg/s to their 24), though a
+person's own point decodes at their speed (21). At 0.6, chosen on GRAB's
+held windows of the people fitted: 21 deg/s to their 23, fingers inside each
+other 1% (from 4%). It still rests less than people do (4% of frames still,
+to their 10%).
+
 Sources - clips of joints at RATE (`clips()`):
 
     library:<kind>      the hand-motion library's generated clips (random,
@@ -97,6 +106,7 @@ TEST_ONLY = ("freihand held out", "grab held out")
 MEASURED = 2000               # held-out windows measured per source
 ROLLED = 200                  # of them, rolled on by the prior
 ROLL_S = 5.0                  # the prior's own motions, measured
+TEMPERATURE = 0.6             # the prior's draws: each mode's spread times this
 CLOSE = 0.2                   # palm lengths: close points, for the contacts measure
 INSIDE_SD = 0.001             # m: fingers' depth in each other beyond hand_contacts.INSIDE
 
@@ -203,6 +213,16 @@ class Net(torch.nn.Module):
         x = torch.cat([self._scaled(past).flatten(-2), z], -1)
         move = self.decoder(x).unflatten(-1, (FUTURE, -1)) * (self.high - self.low) / 2
         return torch.clamp(past[..., -1:, :] + move, self.low, self.high)
+
+
+def draw(prior, temperature=TEMPERATURE):
+    """A point from `prior` (Net.prior_of): a mode as likely as it is, then
+    near its mean, its spread times `temperature`."""
+    mode = prior.mixture_distribution.sample()[..., None, None]
+    normal = prior.component_distribution.base_dist
+    mean = torch.take_along_dim(normal.loc, mode, -2).squeeze(-2)
+    spread = torch.take_along_dim(normal.scale, mode, -2).squeeze(-2)
+    return mean + temperature * spread * torch.randn_like(mean)
 
 
 def _mlp(inputs, outputs):
@@ -343,7 +363,7 @@ def measure(net, data, hand, reference, seed=0):
     rebuilt      the encoder's point decoded: joints_deg, points_mm, and
                  close_mm - the distances between points of different
                  fingers that are under CLOSE apart, how far off
-    prior        a point drawn from the prior: realism_mm - each pose's
+    prior        a point drawn from the prior (draw()): realism_mm - each pose's
                  distance to the nearest fitted pose, against the held-out
                  truth's own (truth_mm); inside - the share of poses with
                  fingers more than hand_contacts.INSIDE deep in each other (truth_inside
@@ -367,7 +387,7 @@ def measure(net, data, hand, reference, seed=0):
         points_made, points = kinematics(made), kinematics(future)
         apart_made, apart = relations(points_made), relations(points)
         close = apart < CLOSE
-        drawn = net.decode(past, net.prior_of(past).sample())
+        drawn = net.decode(past, draw(net.prior_of(past)))
         rolled = _roll(net, past[:ROLLED], round(ROLL_S * RATE))
         out[source] = {
             "rebuilt": {"joints_deg": float(torch.rad2deg((made - future).abs()).mean()),
@@ -392,7 +412,7 @@ def _roll(net, past, count):
     frames = []
     stride = FUTURE // 2
     while sum(f.shape[1] for f in frames) < count:
-        made = net.decode(past, net.prior_of(past).sample())[:, :stride]
+        made = net.decode(past, draw(net.prior_of(past)))[:, :stride]
         frames.append(made)
         past = torch.cat([past, made], 1)[:, -PAST:]
     return torch.cat(frames, 1)[:, :count]
@@ -458,7 +478,7 @@ class MotionSpace:
     @torch.no_grad()
     def sample(self, past, seed=0):
         torch.manual_seed(seed)
-        return self.net.prior_of(_t(past)).sample().numpy()
+        return draw(self.net.prior_of(_t(past))).numpy()
 
     @torch.no_grad()
     def roll(self, past, count, seed=0):

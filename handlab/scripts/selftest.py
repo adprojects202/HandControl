@@ -1926,6 +1926,13 @@ def the_motion_space_sees_the_hand_as_mujoco_does_and_keeps_its_ranges():
     assert (made >= net.low).all() and (made <= net.high).all()
     terms = motion_space.losses(net, kinematics, motion_space.Relations(), past, made.detach())
     assert all(v.shape == (2,) and torch.isfinite(v).all() for v in terms.values())
+    # A draw at temperature 0 is a mode's mean; one past alone draws one point.
+    prior = net.prior_of(past)
+    z = motion_space.draw(prior, 0.0)
+    means = prior.component_distribution.base_dist.loc
+    assert z.shape == (2, motion_space.LATENT)
+    assert ((means - z[:, None]).abs().amax(-1).min(-1).values < 1e-6).all()
+    assert motion_space.draw(net.prior_of(past[0])).shape == (motion_space.LATENT,)
 
 
 @check

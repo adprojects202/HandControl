@@ -212,8 +212,9 @@ like those it was fitted to, never the camera's numbers copied. A
 conditional VAE with a learnt prior (as PULSE and Motion VAEs): from the
 last 0.2 s of joints (20 Hz) and a point in 32 dimensions, the next 0.4 s;
 the prior over the point given the past is a mixture of 8, and drawing from
-it over and over rolls a motion on. Fitted to the hand library's clips and
-FreiHAND's training hands retargeted; its errors are on the joints, the
+it over and over rolls a motion on. Fitted to the hand library's clips,
+FreiHAND's training hands retargeted and GRAB's people handling objects
+(below); its errors are on the joints, the
 hand's 16 points through the robot's kinematics in torch
 (`torch_kinematics.py`, MuJoCo's to 4e-7), the distances between fingers -
 close ones most, contacts of any kind - and speeds. The data never says
@@ -226,21 +227,29 @@ On held-out clips, 3 seeds (spread after the ±; truth in brackets):
 
 | source | rebuilt | drawn: off the data | drawn: fingers inside | rolled 5 s: inside | rolled: speed (deg/s) |
 | --- | --- | --- | --- | --- | --- |
-| library: touch | 0.44° ±0.00, 0.68 mm | 8.6 mm ±0.7 (2.0) | 11.9% ±1.4 (2.5) | 4.4% ±0.8 | 50 ±2 (40) |
-| library: gesture | 0.36°, 0.59 mm | 8.2 mm ±0.5 (1.9) | 12.4% ±1.0 (0.7) | 6.3% ±1.9 | 48 ±3 (28) |
-| library: wave | 0.45°, 0.78 mm | 9.6 mm ±0.5 (3.3) | 12.4% ±1.5 (0.2) | 6.2% ±1.2 | 49 ±4 (25) |
-| library: random | 0.77°, 1.11 mm | 18.5 mm ±0.1 (17.8) | 2.2% ±0.4 (0.4) | 4.7% ±2.0 | 48 ±4 (32) |
-| FreiHAND | 0.27°, 0.44 mm | 6.5 mm ±0.1 (3.2) | 4.2% ±0.7 (0.2) | 3.4% ±0.5 | 38 ±5 (19) |
-| FreiHAND, never fitted | 0.29°, 0.49 mm | 9.1 mm ±0.2 (8.0) | 4.4% ±0.3 (0.3) | 3.9% ±0.8 | 39 ±7 (20) |
+| library: touch | 0.47° ±0.02, 0.70 mm | 6.3 mm ±0.0 (2.2) | 9.5% ±1.0 (2.5) | 4.7% ±1.6 | 40 ±3 (40) |
+| library: gesture | 0.39°, 0.64 mm | 6.3 mm ±0.1 (2.1) | 7.5% ±0.5 (0.7) | 4.4% ±1.0 | 38 ±1 (28) |
+| library: wave | 0.48°, 0.83 mm | 7.7 mm ±0.2 (3.6) | 9.8% ±0.7 (0.2) | 4.9% ±1.2 | 39 ±1 (25) |
+| library: random | 0.80°, 1.15 mm | 18.3 mm ±0.1 (18.3) | 1.5% ±0.3 (0.4) | 2.6% ±0.3 | 36 ±3 (32) |
+| FreiHAND | 0.26°, 0.42 mm | 5.4 mm ±0.1 (3.4) | 1.2% ±0.3 (0.2) | 1.2% ±1.1 | 24 ±2 (19) |
+| FreiHAND, never fitted | 0.28°, 0.47 mm | 8.1 mm ±0.1 (7.9) | 1.6% ±0.3 (0.3) | 1.4% ±0.5 | 25 ±4 (20) |
+| GRAB | 0.60°, 0.88 mm | 5.7 mm ±0.1 (5.1) | 1.8% ±0.3 (0.0) | 1.3% ±0.9 | 22 ±2 (22) |
+| GRAB, people 9-10, never fitted | 0.70°, 1.07 mm | 7.8 mm ±0.0 (7.6) | 2.4% ±0.9 (0.0) | 1.1% ±1.2 | 23 ±3 (25) |
 
 *Fingers inside* is more than 2 mm deep in each other; *off the data* is a
 drawn pose's distance to the nearest fitted one. Without the collision cost
-(shorter fits) drawn motions went 20-25% inside and rolled ones 16-26%;
-with it rolled motions move faster than the data and end further from it
-(20-22 mm, against 13-17). Every motion here is key poses joined by minimum
-jerk - real hand-object recordings, with people's own timing and grasps,
-are the next sources. `scripts/fit_motion_space.py`, about 70 min on this
-Mac (GPU; contacts on the CPU) - `data/learning/motion_space.pt`.
+(shorter fits) drawn motions went 20-25% inside and rolled ones 16-26%.
+Points are drawn at a temperature of 0.6 - each of the prior's modes
+narrowed, as Glow's (Kingma & Dhariwal, 2018): at its full spread every draw
+is a new motion, and rolled on the hand ran at twice people's speed and
+never rested (GRAB's people 9-10: 42 deg/s to their 24), though a person's
+own point decodes at their speed. 0.6 was chosen on GRAB's fitted people.
+It still rests less than people do (4% of frames still, to their 10%), and
+the library's kinds, each with its own pace, all roll at 36-40. GRAB
+brought people 9-10 rebuilt from 1.08° to 0.69° (the fit without it, seed
+0) and rolled motions ending nearer the data. `scripts/fit_motion_space.py`,
+about 70 min on this Mac (GPU; contacts on the CPU) -
+`data/learning/motion_space.pt`.
 
 Its first real motion is **GRAB** (Taheri et al., ECCV 2020;
 grab.is.tue.mpg.de, after registering; research use only): 10 people
