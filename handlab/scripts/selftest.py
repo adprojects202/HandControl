@@ -1875,6 +1875,55 @@ def a_persons_hand_stands_on_the_robot_palm_in_the_sim():
     assert (sim.data.mocap_pos[sim._skeleton][:, 2] < -1).all(), "parked out of sight"
 
 
+@check
+def the_motion_space_sees_the_hand_as_mujoco_does_and_keeps_its_ranges():
+    import mujoco
+    import torch
+    from src.learning import handmotion, motion_space
+    from src.learning.hand_library import HandModel
+    from src.learning.torch_kinematics import TorchKinematics
+    hand = HandModel()
+    rng = np.random.default_rng(2)
+    q = rng.uniform(hand.low, hand.high, (20, hand.model.nq))
+    kinematics = TorchKinematics(hand.model, hand.chain, hand.palm)
+    points = kinematics(torch.as_tensor(q, dtype=torch.float32)).numpy()
+    for row, joints in zip(points, q):
+        hand.data.qpos[:] = joints
+        mujoco.mj_kinematics(hand.model, hand.data)
+        expected = handmotion.robot_points(hand.model, hand.data, hand.chain, hand.palm)
+        assert np.abs(row - expected).max() < 1e-5, "torch kinematics differ from MuJoCo's"
+    # Any point decodes to a motion inside the joints' ranges, and the
+    # losses are finite and per window.
+    net = motion_space.Net(hand.low, hand.high)
+    past = torch.as_tensor(q[:2, None].repeat(motion_space.PAST, 1), dtype=torch.float32)
+    made = net.decode(past, 10 * torch.randn(2, motion_space.LATENT))
+    assert made.shape == (2, motion_space.FUTURE, hand.model.nq)
+    assert (made >= net.low).all() and (made <= net.high).all()
+    terms = motion_space.losses(net, kinematics, motion_space.Relations(), past, made.detach())
+    assert all(v.shape == (2,) and torch.isfinite(v).all() for v in terms.values())
+
+
+@check
+def fingers_inside_each_other_cost_and_their_gradient_undoes_it():
+    import torch
+    from src.learning.hand_contacts import HandContacts
+    from src.learning.hand_library import HandModel
+    hand = HandModel()
+    contacts = HandContacts(hand)
+    assert contacts.depths(np.zeros(hand.model.nq))[0] == 0, "the open hand is clear"
+    rng = np.random.default_rng(3)
+    poses = rng.uniform(hand.low + 0.05, hand.high - 0.05, (300, hand.model.nq))
+    inside = [q for q in poses if contacts.depths(q)[0] > 0][:10]
+    assert inside, "random poses put fingers inside each other"
+    for q in inside:
+        cost, gradient = contacts.depths(q)
+        step = q - 1e-4 * gradient / np.linalg.norm(gradient)
+        assert contacts.depths(step)[0] < cost, "a step down the gradient goes less deep"
+    q = torch.tensor(np.array(inside), dtype=torch.float32, requires_grad=True)
+    contacts.cost(q).sum().backward()
+    assert q.grad.abs().sum() > 0
+
+
 def _six_back(six):
     """A rotation matrix from its first two columns (6,)."""
     x, y = six[:3], six[3:]
