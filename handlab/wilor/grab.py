@@ -14,6 +14,8 @@ data/external/grab (as GRAB's unzip script lays them out):
                  components - the full 45 equal them), the person's own hand
                  shape, the object's pose, contact labels
     tools/subject_meshes/<gender>/s<n>_<rhand|lhand>.ply   those shapes
+    tools/object_meshes/contact_meshes/<object>.ply        the objects and
+                 the table, in their own frames
 
 Each hand through smplx's MANO as GRAB's own code does (the person's shape
 as its template, a flat mean pose, 24 components), its fingertips from
@@ -22,16 +24,24 @@ convention (its mano_wrapper), so a GRAB hand and a tracked one are one
 thing. Every STEP-th frame is kept (RATE). Contact: GRAB labels every object
 vertex with the body part touching it (its tools/utils.py contact_ids);
 each hand's PARTS - palm, then each finger's three segments - touching the
-object or not.
+object or not. And where the object and the table are, and which way the
+person faces (SMPL-X's forward, +z of the body), with the meshes of every
+object handled and the table - what a camera's view of the hands has in
+front of them (src/learning/grab.py views()).
 
 The takes are pickled dicts; they are read with an unpickler that lets in
 only NumPy's array reconstruction (all they hold).
 
     data/learning/intent/grab_hands.npz
-        joints (N, 2, 21, 3) m: right then left hand, GRAB's world axes;
-        contact (N, 2, 16) bool, PARTS; take (N,) - the take each frame is
-        from (frames of a take in a row); subject, object, intent, name
-        (takes,); rate; made
+        joints (N, 2, 21, 3) m: right then left hand, GRAB's world axes
+        (z up); contact (N, 2, 16) bool, PARTS; object_pose, table_pose
+        (N, 6): turn (axis-angle) and place (m), a mesh's frame in the
+        world; take (N,) - the take each frame is from (frames of a take
+        in a row); subject, object, intent, name, facing (takes, 3): the
+        person's forward at the take's first frame; rate; made
+    data/learning/intent/grab_meshes.npz
+        <object>_vertices (V, 3) m, <object>_faces (F, 3): each object
+        handled, and the table
 """
 
 import io
@@ -41,6 +51,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+import cv2
 import numpy as np
 import smplx
 import torch
@@ -52,6 +63,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GRAB = ROOT / "data" / "external" / "grab"
 MANO = ROOT / "data" / "external" / "mano_v1_2" / "models"
 OUT = ROOT / "data" / "learning" / "intent" / "grab_hands.npz"
+MESHES = OUT.with_name("grab_meshes.npz")
 SOURCE_RATE = 120
 STEP = 6
 RATE = SOURCE_RATE // STEP     # Hz
@@ -72,8 +84,9 @@ _ARRAYS = {("numpy.core.multiarray", "_reconstruct"), ("numpy", "ndarray"), ("nu
 def main():
     takes = sorted(GRAB.glob("grab/s*/*.npz"), key=lambda p: (int(p.parent.name[1:]), p.stem))
     models = {}
-    out = {"joints": [], "contact": [], "take": []}
-    meta = {"subject": [], "object": [], "intent": [], "name": []}
+    out = {"joints": [], "contact": [], "object_pose": [], "table_pose": [], "take": []}
+    meta = {"subject": [], "object": [], "intent": [], "name": [], "facing": []}
+    meshes = {}
     started = time.monotonic()
     for index, path in enumerate(takes):
         take = read(path)
@@ -85,7 +98,18 @@ def main():
         contact = np.stack([touched[:, CONTACT_IDS[hand]] for hand in HANDS], 1)
         out["joints"].append(joints.astype(np.float32))
         out["contact"].append(contact)
+        for key, thing, mesh in (("object_pose", take["object"], "object_mesh"),
+                                 ("table_pose", take["table"], "table_mesh")):
+            params = thing["params"]
+            out[key].append(np.concatenate([params["global_orient"][keep], params["transl"][keep]],
+                                           1).astype(np.float32))
+            name = Path(thing[mesh]).stem
+            if name not in meshes:
+                shape = trimesh.load(GRAB / thing[mesh], process=False)
+                meshes[name] = (shape.vertices.astype(np.float32), shape.faces.astype(np.int32))
         out["take"].append(np.full(len(joints), index, np.int16))
+        turn, _ = cv2.Rodrigues(np.asarray(take["body"]["params"]["global_orient"][0], float))
+        meta["facing"].append(turn[:, 2])
         for key, value in (("subject", take["sbj_id"]), ("object", take["obj_name"]),
                            ("intent", take["motion_intent"]), ("name", path.stem)):
             meta[key].append(str(value))
@@ -95,7 +119,10 @@ def main():
     arrays = {k: np.concatenate(v) for k, v in out.items()}
     np.savez(OUT, **arrays, **{k: np.array(v) for k, v in meta.items()}, rate=np.array(RATE),
              made=np.array(datetime.now().isoformat(timespec="seconds")))
-    print(f"wrote {OUT}: {len(takes)} takes, {len(arrays['take'])} frames at {RATE} Hz", flush=True)
+    np.savez_compressed(MESHES, **{f"{name}_{part}": array for name, (vertices, faces) in meshes.items()
+                                   for part, array in (("vertices", vertices), ("faces", faces))})
+    print(f"wrote {OUT}: {len(takes)} takes, {len(arrays['take'])} frames at {RATE} Hz; "
+          f"{len(meshes)} meshes", flush=True)
 
 
 def read(path):

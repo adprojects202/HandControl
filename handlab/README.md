@@ -271,6 +271,86 @@ objects' meshes (`tools/object_meshes/contact_meshes`, each under its own
 licence - `contactdb/licenses.json`; their vertices are the ones GRAB's
 contact labels number), for when objects come into the sim.
 
+Step 3 is the **reader** (`src/learning/reader.py`): what the tracker has
+given of a hand over the last 0.5 s, and the robot's own last 0.2 s -> a
+point in the motion space, whose motion the robot makes; and the contacts
+the hand means now. Fitted, not searched for: true motions are known -
+GRAB's people and FreiHAND's hands, moved between as the motion space's
+clips are, each with the robot's retargeted motion - and made into what
+the tracker would give (`src/learning/tracker_noise.py`): WiLoR's own errors
+on FreiHAND's photos, each taken from one of the 32 training hands posed
+most like the true one (a pinch is misread as pinches are) and scaled per
+point to the held-out photos' size; a misread lasting 0.2-2 s and fading
+into the next, with a little fresh jitter each frame; points an object hides
+guessed (drawn towards another hand's), the hand lost when most of it is
+hidden, in bursts, and frames skipped. Against WiLoR's real reading of the
+held-out photos it is close: points 0.091 palm lengths off (WiLoR 0.086),
+the solver given them 8.3 degrees off (7.75; errors from any hand rather
+than a like-posed one, 9.0), and 2.2-2.9 degrees a frame of jitter (a
+webcam recording through WiLoR, 2.4). Two of WiLoR's errors are never
+blended in full: they share a bias, and the blend came out 40% too big.
+
+What hides the hands is GRAB's own scenes: `scripts/build_grab_views.py`
+(`grab.views`, ~10 s on 8 cores) places 4 cameras per take as a camera on a
+stand would be - in front of the person, above the hands, 0.4-0.9 m away -
+and casts MuJoCo's rays from each to the hands' 21 points against the
+object's and the table's meshes, triangle by triangle. 9% of points are
+hidden, a third of frames have one or more, fingers 7-15%, most of the hand
+5-6% of views (the other hand and the person's body are not counted) -
+`data/learning/intent/grab_views.npz`.
+
+How it reads: a network gives the robot's next 8 poses, and the motion
+space's own encoder (frozen) turns them, with the robot's past, into the
+point. Two other ways were tried first: a network giving the point itself,
+fitted through the decoder, was 9.3 degrees off on people it never saw even
+given their true hands (where a network from hand to robot pose gets 2.1,
+and the encoder given the true motion follows it to 1.2); a mixture over
+points fitted to the encoder's was 15 degrees off with fingers 20-35%
+inside each other - nearness in the space is not nearness of the hand. Each
+frame of a point's motion is counted as it is used, the first most
+(exp(-k)): counted alike, the frames after it - a person's next 0.4 s, not
+in what the camera has seen - were hedged on, and the hand moved a third as
+much as the person's. It is fitted on its own motion, 8 frames on from a
+true past, as it is used. The contacts meant are the robot's thumb on each
+finger and each part of the hand on an object (GRAB's contact labels), each
+a yes or no; each one's threshold is its best F1 on the held-back clips of
+the people it was fitted on, never the test ones, and kept with the model.
+
+On clips it never saw, followed frame by frame from start to end, against
+the labelling solver (`HumanRetarget`, each frame from the last, a lost
+frame held) given the same tracker's hands; every 4th clip, 3 seeds
+(spread after the ±; truth in brackets):
+
+| | joints | robot points | errors x2 | point hidden | hand lost | speed (deg/s) | jumps over 20° | fingers inside |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| GRAB people 9-10: reader | 8.1° ±0.1 | 13.2 mm | 9.2° | 9.5° | 9.1° | 22 (30) | 0.5% (1.8) | 1.6% |
+| GRAB people 9-10: solver | 11.6° | 17.5 mm | 16.6° | 14.2° | 12.6° | 44 (30) | 13.7% (1.8) | 0.0% |
+| FreiHAND, never fitted: reader | 6.5° ±0.0 | 13.1 mm | 8.1° | - | 7.4° | 20 (18) | 0.2% (0.1) | 1.9% |
+| FreiHAND, never fitted: solver | 11.3° | 17.7 mm | 17.0° | - | 12.2° | 30 (18) | 4.6% (0.1) | 0.0% |
+| FreiHAND photos, as WiLoR read them: reader | 7.5° ±0.1 | 14.1 mm | | | | | | 0.8% |
+| FreiHAND photos, as WiLoR read them: solver | 7.8° | 12.9 mm | | | | | | 0.1% |
+
+*Point hidden* and *hand lost* are the joints on those frames only; a photo
+is held 2 s from rest. The contacts it means, on GRAB's people 9-10 (caught
+/ false, then AUC: 1 always right, 0.5 a guess): the thumb on the index
+55% / 3.1%, 0.93 (the solver's own touches 49% / 5.6%); on objects the
+thumb 77% / 18%, 0.87, the index 77% / 22%, 0.85, the palm 57% / 7%, 0.89,
+the little finger 60% / 17%, 0.83 - these people hold objects more often
+than the fitted ones (the thumb 32% of frames to 14%), so false ones are
+more. On the photos: the thumb on the index 64% / 4.9%, middle 36% / 3.3%,
+ring 47% / 3.7% (AUC 0.92-0.95), where the solver's touches are 68% / 3.5%,
+48% / 1.0%, 64% / 0.5%.
+
+Where it falls short: the thumb on the middle and ring - rare in GRAB
+(people 9-10's thumb on the middle 2% caught) and below the solver on the
+photos; motion slower than people's (22 deg/s to their 30 on GRAB's people
+9-10: the motion space's motions are smooth, a quick move comes late);
+fingers 1.6-1.9% inside each other, the solver's none; and the robot's own
+touches fewer than the contacts it means (the thumb on the index made 34%
+of the time against 55% meant) - the physics policy, step 4, is to make
+contacts from what is meant. `scripts/fit_reader.py`, about 70 min on this
+Mac - `data/learning/reader.pt`.
+
 ## The control loop
 
 ```
@@ -880,7 +960,7 @@ All take no arguments and read `settings.json`.
 
 | script | does |
 | --- | --- |
-| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays, the plan stage, the task sim's weld and servos, a grip that holds, the plan step, out-of-date files, generated motions, the tracker's environment, hand shapes (person and robot), the hand library's touches and key poses, a person's pinch made a touch unless an object is between, retargeting in motion staying put, the motion space's kinematics and ranges, fingers inside each other and the gradient that undoes it |
+| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays, the plan stage, the task sim's weld and servos, a grip that holds, the plan step, out-of-date files, generated motions, the tracker's environment, hand shapes (person and robot), the hand library's touches and key poses, a person's pinch made a touch unless an object is between, retargeting in motion staying put, the motion space's kinematics and ranges, fingers inside each other and the gradient that undoes it, the tracker noise (misread, lost when hidden, still a palm frame), GRAB's cameras, the reader's shapes and ranges |
 | `scripts/render.py` | `renders/world.png` - the world without a window |
 | `scripts/build_library.py` | the tracker's trajectory library from the recordings (about 30 min; also the Learning panel's *Build library*) |
 | `scripts/build_hand_library.py` | the hand-motion library: random poses, touches, signs, waves and every recorded hand (about 4 min; also *Build library* learning hand motion) |
@@ -888,7 +968,9 @@ All take no arguments and read `settings.json`.
 | `scripts/build_intent_pairs.py` | FreiHAND's true hands labelled with the robot poses they mean (about 2 min), then how WiLoR's view of them reads the touches |
 | `scripts/fit_motion_space.py` | the motion space, fitted 3 times and measured on held-out clips (about 70 min) |
 | `scripts/build_grab.py` | GRAB's people handling objects, their hands put onto the robot (about 20 min) |
-| `wilor/grab.py` | GRAB's hands, their 21 points at 20 Hz (about 1 min; in `.venv-wilor`) |
+| `scripts/build_grab_views.py` | where cameras could see GRAB's hands from, and which points the object or table hides (about 10 s) |
+| `scripts/fit_reader.py` | the reader, fitted 3 times and measured on clips it never saw, against the solver (about 70 min) |
+| `wilor/grab.py` | GRAB's hands, their 21 points at 20 Hz, the objects' poses and meshes (about 1 min; in `.venv-wilor`) |
 | `wilor/freihand.py` | WiLoR on FreiHAND's photos (about 2 h; in `.venv-wilor`: `../.venv-wilor/bin/python wilor/freihand.py`) |
 | `wilor/live.py` | WiLoR on the webcam, its hand drawn and the thumb's gaps to the fingertips (in `.venv-wilor`) |
 | `scripts/clearml_train.py` | trains on the ClearML agent's GPU as a pipeline and fetches the run (also *Train on ClearML*) |
@@ -959,7 +1041,9 @@ src/
   learning/motion_space.py the robot hand's motions as a learnt space (conditional VAE)
   learning/torch_kinematics.py the robot hand's points from its joints, in torch
   learning/hand_contacts.py fingers inside each other: depth and its gradient (MuJoCo contacts)
-  learning/grab.py        GRAB: people's hands on objects, put onto the robot
+  learning/grab.py        GRAB: people's hands on objects, put onto the robot; what a camera loses
+  learning/tracker_noise.py what a tracker makes of a hand: WiLoR's own errors, misreads, hidden, lost
+  learning/reader.py      the reader: the tracker's hands -> points in the motion space, contacts meant
   keys.py                 secrets (API keys, HF_TOKEN): environment, then .env
   assistant/claude.py     Anthropic Messages API
   assistant/openai_api.py OpenAI Responses API
@@ -979,7 +1063,7 @@ src/
   viewer/assistant_panel.py the assistant's settings (in Recordings, step 1)
   app.py                wires it all together
 scripts/                helpers, no arguments
-wilor/                  run in .venv-wilor: the WiLoR hand tracker (model, live, freihand), GRAB's hands
+wilor/                  run in .venv-wilor: the WiLoR hand tracker (model, live, freihand), GRAB's hands and meshes
 ```
 
 ## Notes

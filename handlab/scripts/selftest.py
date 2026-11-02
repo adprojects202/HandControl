@@ -1936,6 +1936,79 @@ def the_motion_space_sees_the_hand_as_mujoco_does_and_keeps_its_ranges():
 
 
 @check
+def the_tracker_noise_misreads_loses_hidden_hands_and_keeps_the_palm_frame():
+    from src.learning import tracker_noise
+    from src.learning.handmotion import in_palm
+    rng = np.random.default_rng(0)
+    hands = in_palm(rng.normal(size=(40, 21, 3)), "Left").astype(np.float32)
+    errors = 0.05 * rng.normal(size=(40, 21, 3)).astype(np.float32)
+    errors[:, [0, 9]] = 0                     # the palm frame's own points, as in_palm leaves them
+    noise = tracker_noise.TrackerNoise(hands, errors)
+    near = noise.neighbours(hands)
+    assert near.shape == (40, tracker_noise.NEIGHBOURS) and (near[:, 0] == np.arange(40)).all()
+    person = np.repeat(hands[None, :8], 3, 0)
+    # No error: the hand given back where it was found, in its palm frame.
+    seen, found = noise.corrupt(person, np.repeat(near[None, :8], 3, 0), None, rng, scale=0.0)
+    assert seen.shape == person.shape and found.shape == (3, 8) and found.any()
+    assert np.abs(seen[found] - person[found]).max() < 1e-4 and (seen[~found] == 0).all()
+    # With errors: misread, and still a palm frame (wrist at 0, middle knuckle at x = 1).
+    seen, found = noise.corrupt(person, np.repeat(near[None, :8], 3, 0), None, rng, scale=1.0)
+    assert np.abs(seen[found] - person[found]).max() > 1e-3
+    assert np.abs(seen[found][:, 0]).max() < 1e-5 and np.abs(seen[found][:, 9] - [1, 0, 0]).max() < 1e-5
+    # A hand mostly hidden is lost.
+    _, found = noise.corrupt(person, np.repeat(near[None, :8], 3, 0), np.ones((3, 8, 21), bool), rng)
+    assert not found.any()
+
+
+@check
+def grab_cameras_stand_in_front_of_the_person_above_the_hands():
+    from src.learning import grab
+    hands = np.zeros((10, 2, 21, 3))
+    hands[:, :, 0] = [1.0, 2.0, 0.9]
+    cameras = grab._cameras(hands, np.array([0.0, -1.0, 0.0]), np.random.default_rng(0))
+    way = cameras - [1.0, 2.0, 0.9]
+    far = np.linalg.norm(way, axis=1)
+    assert cameras.shape == (grab.CAMERAS, 3)
+    assert ((far > grab.CAMERA_M[0] - 1e-9) & (far < grab.CAMERA_M[1] + 1e-9)).all()
+    assert (way[:, 2] >= -1e-9).all() and (way[:, 1] < 0).all()      # above, and in front (facing -y)
+
+
+@check
+def the_reader_reads_into_the_motion_space_and_follows_within_the_ranges():
+    import torch
+    from src.learning import motion_space, reader
+    from src.learning.hand_library import HandModel
+    from src.learning.torch_kinematics import TorchKinematics
+    hand = HandModel()
+    space = motion_space.Net(hand.low, hand.high).requires_grad_(False)
+    net = reader.Net(hand.low, hand.high)
+    rng = np.random.default_rng(1)
+    count, joints = 3, hand.model.nq
+    seen = torch.as_tensor(rng.normal(size=(count, reader.SEEN + reader.ROLL - 1, 21, 3)), dtype=torch.float32)
+    found = torch.ones(count, reader.SEEN + reader.ROLL - 1)
+    q = rng.uniform(hand.low, hand.high, (count, joints))
+    past = torch.as_tensor(np.repeat(q[:, None], motion_space.PAST, 1), dtype=torch.float32)
+    futures = torch.as_tensor(np.repeat(q[:, None, None], reader.ROLL, 1).repeat(motion_space.FUTURE, 2),
+                              dtype=torch.float32)
+    contact = torch.zeros(count, reader.ROLL, reader.INTENTS - len(reader.TOUCHES))
+    known = torch.ones(count, reader.ROLL)
+    terms = reader.losses(net, space, TorchKinematics(hand.model, hand.chain, hand.palm),
+                          motion_space.Relations(), seen, found, past, futures, contact, known)
+    assert all(v.shape == (count,) and torch.isfinite(v).all() for v in terms.values())
+    sum(v.mean() for v in terms.values()).backward()
+    assert all(p.grad is not None for p in net.parameters())
+    # The poses read stay in the joints' ranges; the point is the encoder's.
+    z, poses, contacts = reader.read(net, space, seen[:, :reader.SEEN], found[:, :reader.SEEN], past)
+    assert poses.shape == (count, motion_space.FUTURE, joints) and z.shape == (count, motion_space.LATENT)
+    assert contacts.shape == (count, reader.INTENTS)
+    assert (poses >= net.low - 1e-6).all() and (poses <= net.high + 1e-6).all()
+    made, meant = reader.follow(net, space, rng.normal(size=(count, 12, 21, 3)), np.ones((count, 12)), q)
+    assert made.shape == (count, 12, joints) and meant.shape == (count, 12, reader.INTENTS)
+    assert ((meant >= 0) & (meant <= 1)).all()
+    assert (made >= hand.low - 1e-6).all() and (made <= hand.high + 1e-6).all()
+
+
+@check
 def fingers_inside_each_other_cost_and_their_gradient_undoes_it():
     import torch
     from src.learning.hand_contacts import HandContacts
