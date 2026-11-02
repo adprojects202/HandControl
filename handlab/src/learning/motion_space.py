@@ -340,7 +340,7 @@ def measure(net, data, hand, reference, seed=0):
                  distance to the nearest fitted pose, against the held-out
                  truth's own (truth_mm); inside - the share of poses with
                  fingers more than hand_contacts.INSIDE deep in each other (truth_inside
-                 for the truth: under 3% for the library, 0 for FreiHAND)
+                 for the truth: under 3% for the library, under 0.5% for FreiHAND)
     rolled       the prior's own motions over ROLL_S, from held-out pasts:
                  realism_mm at their end, inside, speed against the truth's
     """

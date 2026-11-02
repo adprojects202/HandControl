@@ -205,6 +205,43 @@ lmb.informatik.uni-freiburg.de (FreiHAND_pub_v2.zip, 3.9 GB, into
 `data/external/freihand_full`; the evaluation set into
 `data/external/freihand`).
 
+Step 2 is the **motion space** (`src/learning/motion_space.py`): the robot
+hand's motions as points in a learnt space, where what the camera reads is
+to land and what the robot is given comes out - a motion of the robot hand
+like those it was fitted to, never the camera's numbers copied. A
+conditional VAE with a learnt prior (as PULSE and Motion VAEs): from the
+last 0.2 s of joints (20 Hz) and a point in 32 dimensions, the next 0.4 s;
+the prior over the point given the past is a mixture of 8, and drawing from
+it over and over rolls a motion on. Fitted to the hand library's clips and
+FreiHAND's training hands retargeted; its errors are on the joints, the
+hand's 16 points through the robot's kinematics in torch
+(`torch_kinematics.py`, MuJoCo's to 4e-7), the distances between fingers -
+close ones most, contacts of any kind - and speeds. The data never says
+fingers cannot go inside each other, so motions drawn from the prior are
+held to the hand sim's own collision geometry: its convex meshes, MuJoCo's
+contacts, the gradient from each contact's normal and Jacobian
+(`hand_contacts.py`, ~45 us a pose).
+
+On held-out clips, 3 seeds (spread after the ±; truth in brackets):
+
+| source | rebuilt | drawn: off the data | drawn: fingers inside | rolled 5 s: inside | rolled: speed (deg/s) |
+| --- | --- | --- | --- | --- | --- |
+| library: touch | 0.44° ±0.00, 0.68 mm | 8.6 mm ±0.7 (2.0) | 11.9% ±1.4 (2.5) | 4.4% ±0.8 | 50 ±2 (40) |
+| library: gesture | 0.36°, 0.59 mm | 8.2 mm ±0.5 (1.9) | 12.4% ±1.0 (0.7) | 6.3% ±1.9 | 48 ±3 (28) |
+| library: wave | 0.45°, 0.78 mm | 9.6 mm ±0.5 (3.3) | 12.4% ±1.5 (0.2) | 6.2% ±1.2 | 49 ±4 (25) |
+| library: random | 0.77°, 1.11 mm | 18.5 mm ±0.1 (17.8) | 2.2% ±0.4 (0.4) | 4.7% ±2.0 | 48 ±4 (32) |
+| FreiHAND | 0.27°, 0.44 mm | 6.5 mm ±0.1 (3.2) | 4.2% ±0.7 (0.2) | 3.4% ±0.5 | 38 ±5 (19) |
+| FreiHAND, never fitted | 0.29°, 0.49 mm | 9.1 mm ±0.2 (8.0) | 4.4% ±0.3 (0.3) | 3.9% ±0.8 | 39 ±7 (20) |
+
+*Fingers inside* is more than 2 mm deep in each other; *off the data* is a
+drawn pose's distance to the nearest fitted one. Without the collision cost
+(shorter fits) drawn motions went 20-25% inside and rolled ones 16-26%;
+with it rolled motions move faster than the data and end further from it
+(20-22 mm, against 13-17). Every motion here is key poses joined by minimum
+jerk - real hand-object recordings, with people's own timing and grasps,
+are the next sources. `scripts/fit_motion_space.py`, about 70 min on this
+Mac (GPU; contacts on the CPU) - `data/learning/motion_space.pt`.
+
 ## The control loop
 
 ```
@@ -814,12 +851,13 @@ All take no arguments and read `settings.json`.
 
 | script | does |
 | --- | --- |
-| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays, the plan stage, the task sim's weld and servos, a grip that holds, the plan step, out-of-date files, generated motions, the tracker's environment, hand shapes (person and robot), the hand library's touches and key poses |
+| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays, the plan stage, the task sim's weld and servos, a grip that holds, the plan step, out-of-date files, generated motions, the tracker's environment, hand shapes (person and robot), the hand library's touches and key poses, the motion space's kinematics and ranges, fingers inside each other and the gradient that undoes it |
 | `scripts/render.py` | `renders/world.png` - the world without a window |
 | `scripts/build_library.py` | the tracker's trajectory library from the recordings (about 30 min; also the Learning panel's *Build library*) |
 | `scripts/build_hand_library.py` | the hand-motion library: random poses, touches, signs, waves and every recorded hand (about 4 min; also *Build library* learning hand motion) |
 | `scripts/record_mimic.py` | a Mimic session in its own window (camera left, the robot right; follow its motions, or copy and hold poses), then the mapping's fit |
 | `scripts/build_intent_pairs.py` | FreiHAND's true hands labelled with the robot poses they mean (about 2 min), then how WiLoR's view of them reads the touches |
+| `scripts/fit_motion_space.py` | the motion space, fitted 3 times and measured on held-out clips (about 70 min) |
 | `wilor/freihand.py` | WiLoR on FreiHAND's photos (about 2 h; in `.venv-wilor`: `../.venv-wilor/bin/python wilor/freihand.py`) |
 | `wilor/live.py` | WiLoR on the webcam, its hand drawn and the thumb's gaps to the fingertips (in `.venv-wilor`) |
 | `scripts/clearml_train.py` | trains on the ClearML agent's GPU as a pipeline and fetches the run (also *Train on ClearML*) |
@@ -887,6 +925,9 @@ src/
   learning/camera_model.py what the camera makes of a robot pose (camera-skeleton training)
   learning/human_retarget.py a person's true 3D hand -> the robot pose it means, touches made
   learning/intent_pairs.py FreiHAND: the robot poses its hands mean, with WiLoR's view of them
+  learning/motion_space.py the robot hand's motions as a learnt space (conditional VAE)
+  learning/torch_kinematics.py the robot hand's points from its joints, in torch
+  learning/hand_contacts.py fingers inside each other: depth and its gradient (MuJoCo contacts)
   keys.py                 secrets (API keys, HF_TOKEN): environment, then .env
   assistant/claude.py     Anthropic Messages API
   assistant/openai_api.py OpenAI Responses API

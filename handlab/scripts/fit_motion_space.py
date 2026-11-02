@@ -4,7 +4,7 @@ measured on held-out clips, and print the measures.
 
     python scripts/fit_motion_space.py
 
-Writes data/learning/motion_space.pt. About 25 min a seed on this Mac (GPU, contacts on the CPU).
+Writes data/learning/motion_space.pt. About 23 min a seed on this Mac (GPU, contacts on the CPU).
 """
 
 import json
