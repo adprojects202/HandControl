@@ -1,7 +1,9 @@
 # virtualenvs. .venv is shared by handlab/ and archive/; .venv-dex is the old
-# keyvector solver's own interpreter (see archive/README.md)
+# keyvector solver's own interpreter (see archive/README.md); .venv-wilor runs
+# the WiLoR hand tracker (handlab/data/external/wilor_code), apart from the app
 .venv/
 .venv-dex/
+.venv-wilor/
 
 # bytecode
 __pycache__/

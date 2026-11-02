@@ -167,6 +167,44 @@ robot pose meant
 thumb tip 0.08 palm lengths off: the lag found exactly, and the held-out
 pinches predicted 3x better than taking the camera's hand as the robot's.
 
+## Intent from the camera (in progress)
+
+Retargeting from Mimic sessions learns from a few thousand of your own
+frames; the aim here is a model that reads what any hand means - the robot
+pose, its touches made - from a camera's noisy view of it, learnt from many
+hands. Step 1 is pairs of the two, from datasets whose hands are measured
+in 3D.
+
+The tracker is **WiLoR** (CVPR 2025; `wilor/`, its own environment
+`HandControl/.venv-wilor`, set up for this Mac in `wilor/model.py`), not
+MediaPipe: on FreiHAND's 3,960 evaluation photos its hands are 5.8 mm off
+the true ones (aligned), finger segments 12 degrees, against MediaPipe's
+15.8 mm and 33 degrees, and it sees real pinches close (0.15 palm lengths
+apart; MediaPipe 0.37, the true 0.14). The backbone runs on the Apple GPU,
+its refinement head and the hand detector on the CPU (MPS gets both wrong):
+~66 ms a hand. `wilor/live.py` shows it on the webcam. Licences: WiLoR
+CC-BY-NC-ND, MANO and FreiHAND research use only.
+
+The robot pose a person's hand means comes from **human retargeting**
+(`src/learning/human_retarget.py`): a least-squares fit over the robot's
+joints to the hand's finger segment directions and which fingers the thumb
+faces, the thumb tip put on the fingertips the person touches (and kept
+apart from the rest in proportion), then settled by the servos in the hand
+sim, so a touch is a contact. On FreiHAND's true hands: 98% of the index
+pinches become robot touches, 94% middle, 79% ring (the robot's low thumb
+reaches its ring finger worst); none of the open hands do; finger segments
+10 degrees from the person's, the thumb 21; 23 ms a hand.
+
+`scripts/build_intent_pairs.py` labels FreiHAND's 32,560 training hands and
+3,960 evaluation hands so (`src/learning/intent_pairs.py`; ~2 min on 8
+cores) and `wilor/freihand.py` runs WiLoR on their photos (training with a
+replaced background, as a camera would see it; ~2 h) -
+`data/learning/intent/`. The evaluation set, real backgrounds and a
+different setting, is held out for testing. FreiHAND came from
+lmb.informatik.uni-freiburg.de (FreiHAND_pub_v2.zip, 3.9 GB, into
+`data/external/freihand_full`; the evaluation set into
+`data/external/freihand`).
+
 ## The control loop
 
 ```
@@ -780,6 +818,9 @@ All take no arguments and read `settings.json`.
 | `scripts/build_library.py` | the tracker's trajectory library from the recordings (about 30 min; also the Learning panel's *Build library*) |
 | `scripts/build_hand_library.py` | the hand-motion library: random poses, touches, signs, waves and every recorded hand (about 4 min; also *Build library* learning hand motion) |
 | `scripts/record_mimic.py` | a Mimic session in its own window (camera left, the robot right; follow its motions, or copy and hold poses), then the mapping's fit |
+| `scripts/build_intent_pairs.py` | FreiHAND's true hands labelled with the robot poses they mean (about 2 min), then how WiLoR's view of them reads the touches |
+| `wilor/freihand.py` | WiLoR on FreiHAND's photos (about 2 h; in `.venv-wilor`: `../.venv-wilor/bin/python wilor/freihand.py`) |
+| `wilor/live.py` | WiLoR on the webcam, its hand drawn and the thumb's gaps to the fingertips (in `.venv-wilor`) |
 | `scripts/clearml_train.py` | trains on the ClearML agent's GPU as a pipeline and fetches the run (also *Train on ClearML*) |
 | `scripts/clearml_gpu_step.py` | the GPU training step - run by the agent, not by hand |
 | `scripts/train_tracker.py` | trains the general tracker on this Mac by `learning.*`, then tests it on every motion (also the Learning panel's *Train*) |
@@ -843,6 +884,8 @@ src/
   learning/mimic.py       Mimic sessions: your hand on camera with the robot pose meant
   learning/retarget.py    the mapping: your hand to the robot's joints, touches made
   learning/camera_model.py what the camera makes of a robot pose (camera-skeleton training)
+  learning/human_retarget.py a person's true 3D hand -> the robot pose it means, touches made
+  learning/intent_pairs.py FreiHAND: the robot poses its hands mean, with WiLoR's view of them
   keys.py                 secrets (API keys, HF_TOKEN): environment, then .env
   assistant/claude.py     Anthropic Messages API
   assistant/openai_api.py OpenAI Responses API
@@ -862,6 +905,7 @@ src/
   viewer/assistant_panel.py the assistant's settings (in Recordings, step 1)
   app.py                wires it all together
 scripts/                helpers, no arguments
+wilor/                  the WiLoR hand tracker, run in .venv-wilor (model, live, freihand)
 ```
 
 ## Notes
