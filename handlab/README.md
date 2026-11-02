@@ -242,6 +242,26 @@ jerk - real hand-object recordings, with people's own timing and grasps,
 are the next sources. `scripts/fit_motion_space.py`, about 70 min on this
 Mac (GPU; contacts on the CPU) - `data/learning/motion_space.pt`.
 
+Its first real motion is **GRAB** (Taheri et al., ECCV 2020;
+grab.is.tue.mpg.de, after registering; research use only): 10 people
+handling 51 objects - lifting, passing, drinking, using - in 1,335 takes,
+motion capture fitted with MANO at 120 fps, with which parts of each hand
+touch the object. `wilor/grab.py` (in `.venv-wilor`, which has MANO's
+loader) gives each hand's 21 points at 20 Hz as WiLoR gives a hand: 271,130
+frames, 3.8 hours (~1 min). `scripts/build_grab.py` puts both hands onto
+the robot (`src/learning/grab.py`, ~20 min) by human retargeting, now in
+motion: each frame is solved from the last and held towards it - solved
+afresh, the robot's thumb hopped between equally good poses (steps over 20
+degrees 3.6% of frames, now 1.3%, finger segments 7.8 degrees from the
+person's against 7.6) - and where the thumb and a fingertip are both on the
+object no touch is made: two thirds of GRAB's close thumb-index gaps have
+the object between them. The takes are read with an unpickler that lets in
+only NumPy arrays. In `data/external/grab`, as GRAB's unzip script lays
+them out: the ten people's parameter files, their hand shapes and the 51
+objects' meshes (`tools/object_meshes/contact_meshes`, each under its own
+licence - `contactdb/licenses.json`; their vertices are the ones GRAB's
+contact labels number), for when objects come into the sim.
+
 ## The control loop
 
 ```
@@ -851,13 +871,15 @@ All take no arguments and read `settings.json`.
 
 | script | does |
 | --- | --- |
-| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays, the plan stage, the task sim's weld and servos, a grip that holds, the plan step, out-of-date files, generated motions, the tracker's environment, hand shapes (person and robot), the hand library's touches and key poses, the motion space's kinematics and ranges, fingers inside each other and the gradient that undoes it |
+| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays, the plan stage, the task sim's weld and servos, a grip that holds, the plan step, out-of-date files, generated motions, the tracker's environment, hand shapes (person and robot), the hand library's touches and key poses, a person's pinch made a touch unless an object is between, retargeting in motion staying put, the motion space's kinematics and ranges, fingers inside each other and the gradient that undoes it |
 | `scripts/render.py` | `renders/world.png` - the world without a window |
 | `scripts/build_library.py` | the tracker's trajectory library from the recordings (about 30 min; also the Learning panel's *Build library*) |
 | `scripts/build_hand_library.py` | the hand-motion library: random poses, touches, signs, waves and every recorded hand (about 4 min; also *Build library* learning hand motion) |
 | `scripts/record_mimic.py` | a Mimic session in its own window (camera left, the robot right; follow its motions, or copy and hold poses), then the mapping's fit |
 | `scripts/build_intent_pairs.py` | FreiHAND's true hands labelled with the robot poses they mean (about 2 min), then how WiLoR's view of them reads the touches |
 | `scripts/fit_motion_space.py` | the motion space, fitted 3 times and measured on held-out clips (about 70 min) |
+| `scripts/build_grab.py` | GRAB's people handling objects, their hands put onto the robot (about 20 min) |
+| `wilor/grab.py` | GRAB's hands, their 21 points at 20 Hz (about 1 min; in `.venv-wilor`) |
 | `wilor/freihand.py` | WiLoR on FreiHAND's photos (about 2 h; in `.venv-wilor`: `../.venv-wilor/bin/python wilor/freihand.py`) |
 | `wilor/live.py` | WiLoR on the webcam, its hand drawn and the thumb's gaps to the fingertips (in `.venv-wilor`) |
 | `scripts/clearml_train.py` | trains on the ClearML agent's GPU as a pipeline and fetches the run (also *Train on ClearML*) |
@@ -928,6 +950,7 @@ src/
   learning/motion_space.py the robot hand's motions as a learnt space (conditional VAE)
   learning/torch_kinematics.py the robot hand's points from its joints, in torch
   learning/hand_contacts.py fingers inside each other: depth and its gradient (MuJoCo contacts)
+  learning/grab.py        GRAB: people's hands on objects, put onto the robot
   keys.py                 secrets (API keys, HF_TOKEN): environment, then .env
   assistant/claude.py     Anthropic Messages API
   assistant/openai_api.py OpenAI Responses API
@@ -947,7 +970,7 @@ src/
   viewer/assistant_panel.py the assistant's settings (in Recordings, step 1)
   app.py                wires it all together
 scripts/                helpers, no arguments
-wilor/                  the WiLoR hand tracker, run in .venv-wilor (model, live, freihand)
+wilor/                  run in .venv-wilor: the WiLoR hand tracker (model, live, freihand), GRAB's hands
 ```
 
 ## Notes

@@ -5,6 +5,7 @@ here; their photos run through the tracker give what a camera would see).
 
     retarget = HumanRetarget()
     q, touching = retarget(world, side)   # (21, 3) m, MediaPipe/FreiHAND order -> (J,), (3,)
+    q, touching = retarget(world, side, holding, start)   # a hand on an object, in motion
 
 What carries over is what the hand does, not its shape - the robot's thumb
 sits much lower and its fingers are longer for its palm, so no robot pose
@@ -34,6 +35,23 @@ within TOUCH_NEAR (the touch library's rule). On 400 FreiHAND hands (true
 middle 79%, ring 58% - the robot's low thumb reaches its ring finger worst;
 gaps under 0.1 palm lengths 98%), none of their open hands did; finger
 segments 10 degrees from the person's, the thumb 21.
+
+A hand on an object (`holding`: the thumb and a fingertip both touching it,
+as datasets of people handling objects label): no touch is made there,
+however close the tips - the object is between them - and the gap asked
+for is the person's in metres, the object's size, not scaled to the robot's
+span; asked softly, as an open hand's (APART). In GRAB 65% of the right
+hands' thumb-index gaps under TOUCH_HUMAN are so (left 45%). Asked as firmly
+as a touch, finger segments went 1.6 degrees further from the person's and
+steps over 20 degrees doubled - the robot's proportions are not a person's,
+and the labels flicker; an object's real shape comes with its mesh.
+
+In motion, `start` - the last frame's pose - is where the solve begins and
+what it is held towards (STILL): the robot's thumb can do much the same in
+more than one way, and solved afresh each frame it hopped between them. On
+GRAB takes (20 Hz) steps over 20 degrees went from 3.6% to 1.3%, the
+largest 73 to 43 (the people's own segments turn up to 25 a step, 99th
+percentile), finger segments 7.8 degrees from the person's against 7.6.
 """
 
 from __future__ import annotations
@@ -43,9 +61,10 @@ import numpy as np
 from scipy.optimize import least_squares
 
 from .hand_library import TOUCH_NEAR, HandModel
-from .handmotion import CHAINS, in_palm, robot_points
+from .handmotion import CHAINS, MIDDLE_KNUCKLE, WRIST, in_palm, robot_points
 
 DIRECTION, OPPOSITION, TOUCH, APART, REST = 1.0, 0.5, 4.0, 0.3, 0.05
+STILL = 0.5                   # per rad from `start` (the last frame's pose), in motion
 START_MARGIN = 0.05           # rad
 TOUCH_HUMAN = 0.2             # palm lengths between a person's thumb tip and a fingertip: touching
 HUMAN_OPEN, ROBOT_OPEN = 1.3, 2.6     # thumb tip to fingertips, open hand, palm lengths (FreiHAND 90th pct; robot at rest)
@@ -60,11 +79,19 @@ class HumanRetarget:
         self.hand = hand or HandModel()
         self.rest = np.zeros(self.hand.model.nq)
 
-    def __call__(self, world, side):
-        """A person's hand (21, 3) -> (robot joints (J,), touching (3,) bool)."""
-        person = in_palm(np.asarray(world, float), side)[CHOSEN]
-        q = self.solve(person)
-        pinching = tuple(f for f, d in zip(FINGERS, _pinches(person)) if d < TOUCH_HUMAN)
+    def __call__(self, world, side, holding=None, start=None):
+        """A person's hand (21, 3) -> (robot joints (J,), touching (3,) bool).
+        holding (3,) bool: the thumb and the index, middle, ring tip both on an
+        object; start (J,): the pose to solve from (rest)."""
+        world = np.asarray(world, float)
+        person = in_palm(world, side)[CHOSEN]
+        holding = np.zeros(len(FINGERS), bool) if holding is None else np.asarray(holding, bool)
+        # The person's gap in the robot's palm lengths, unscaled: the object's size.
+        held = np.where(holding, _pinches(person) * np.linalg.norm(world[MIDDLE_KNUCKLE] - world[WRIST])
+                        / self.hand.palm[2], np.nan)
+        q = self.solve(person, held, start)
+        pinching = tuple(f for f, d, h in zip(FINGERS, _pinches(person), holding)
+                         if d < TOUCH_HUMAN and not h)
         if pinching:                     # the touch made exact, as the touch library makes them
             q = self.hand.reach(q, pinching)
         settled = self.hand.settle(q)
@@ -75,20 +102,26 @@ class HumanRetarget:
         together = contact.any() and np.isin(FINGERS, pinching).sum() > 1
         return settled, contact | (together & near & np.isin(FINGERS, pinching))
 
-    def solve(self, person):
-        """The least-squares pose for the person's 16 points (palm frame)."""
+    def solve(self, person, held=None, start=None):
+        """The least-squares pose for the person's 16 points (palm frame);
+        held (3,): the gaps an object keeps (robot palm lengths, NaN where none);
+        start: the last frame's pose, solved from and held towards (STILL)."""
         hand = self.hand
         wanted = _segments(person)
         pinch = _pinches(person)
         facing = np.array([_unit(person[TIP[f]] - person[TIP["thumb"]]) for f in FINGERS])
-        touch = pinch < TOUCH_HUMAN
+        held = np.full(len(FINGERS), np.nan) if held is None else np.asarray(held, float)
+        touch = (pinch < TOUCH_HUMAN) & np.isnan(held)
         apart = ROBOT_TOUCH + (pinch - TOUCH_HUMAN) * (ROBOT_OPEN - ROBOT_TOUCH) / (HUMAN_OPEN - TOUCH_HUMAN)
+        apart = np.where(np.isnan(held), apart, held)
 
         def residuals(q):
             hand.data.qpos[:] = q
             mujoco.mj_kinematics(hand.model, hand.data)
             robot = robot_points(hand.model, hand.data, hand.chain, hand.palm)
             out = [DIRECTION * (_segments(robot) - wanted).ravel(), REST * (q - self.rest)]
+            if previous is not None:
+                out.append(STILL * (q - previous))
             for k, finger in enumerate(FINGERS):
                 gap = robot[TIP[finger]] - robot[TIP["thumb"]]
                 out.append(OPPOSITION * (_unit(gap) - facing[k]))
@@ -100,7 +133,9 @@ class HumanRetarget:
 
         # Started a little inside the joints' limits: at rest the thumb sits on
         # one, and from there the solver's first step fails and it stops.
-        start = np.clip(self.rest, hand.low + START_MARGIN, hand.high - START_MARGIN)
+        previous = start
+        start = np.clip(self.rest if start is None else start, hand.low + START_MARGIN,
+                        hand.high - START_MARGIN)
         found = least_squares(residuals, start, bounds=(hand.low, hand.high))
         return found.x
 

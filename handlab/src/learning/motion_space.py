@@ -45,10 +45,13 @@ Sources - clips of joints at RATE (`clips()`):
                         between as the library's random clips are
     freihand held out   its evaluation hands so - never fitted: does the
                         space hold people's poses it has not seen?
+    grab                GRAB's people handling objects (grab.py), both
+                        hands of every take of GRAB_PEOPLE's first eight:
+                        people's own motion, timing, grasps and rests
+    grab held out       its last two people - never fitted
 
-Every motion here is still key poses joined by minimum jerk; hand-object
-recordings, retargeted, bring people's own timing and grasps as sources
-next. Every HELD_OUT-th clip of each source is held out and measured
+The library's and FreiHAND's motions are key poses joined by minimum jerk;
+GRAB's are people's own. Every HELD_OUT-th clip of each source is held out and measured
 (`report`), the fit made SEEDS times to see its spread; the first seed's is
 kept.
 
@@ -65,7 +68,7 @@ import numpy as np
 import torch
 
 from ..paths import ROOT
-from . import hand_library, intent_pairs
+from . import grab, hand_library, intent_pairs
 from .hand_contacts import HandContacts
 from .hand_library import HandModel
 from .handmotion import RATE
@@ -89,7 +92,8 @@ LEARNING_RATE = 3e-4
 SEEDS = (0, 1, 2)
 HELD_OUT = 10
 FREIHAND_CLIPS = {"freihand": ("training", 3000), "freihand held out": ("evaluation", 300)}
-TEST_ONLY = ("freihand held out",)
+GRAB_PEOPLE = {"grab": ("s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"), "grab held out": ("s9", "s10")}
+TEST_ONLY = ("freihand held out", "grab held out")
 MEASURED = 2000               # held-out windows measured per source
 ROLLED = 200                  # of them, rolled on by the prior
 ROLL_S = 5.0                  # the prior's own motions, measured
@@ -118,6 +122,9 @@ def clips(seed=0):
         if path.exists():
             poses = np.load(path)["joints"]
             out[source] = [_pose_clip(poses, rng) for _ in range(count)]
+    labels = grab.load()
+    for source, people in GRAB_PEOPLE.items() if labels else ():
+        out[source] = grab.clips(labels, people)
     return out
 
 

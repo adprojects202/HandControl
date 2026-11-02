@@ -1876,6 +1876,31 @@ def a_persons_hand_stands_on_the_robot_palm_in_the_sim():
 
 
 @check
+def a_pinch_is_a_touch_unless_an_object_is_between_and_motion_stays_put():
+    import mujoco
+    from src.learning.handmotion import robot_points
+    from src.learning.human_retarget import TIP, HumanRetarget
+    retarget = HumanRetarget()
+    hand = retarget.hand
+
+    def gap(q):
+        hand.data.qpos[:] = q
+        mujoco.mj_kinematics(hand.model, hand.data)
+        points = robot_points(hand.model, hand.data, hand.chain, hand.palm)
+        return np.linalg.norm(points[TIP["index"]] - points[TIP["thumb"]]), points
+
+    # The robot's own index pinch, as a person's hand (palm frame).
+    pinched, person = gap(hand.reach(np.zeros(hand.model.nq), ("index",), np.random.default_rng(0)))
+    assert pinched < 0.05
+    alone = retarget.solve(person)
+    assert gap(alone)[0] < 0.03, "fingertips together: a touch"
+    held = retarget.solve(person, held=np.array([0.5, np.nan, np.nan]))
+    assert gap(held)[0] > gap(alone)[0] + 0.05, "an object between them: not pressed together"
+    again = retarget.solve(person, start=alone)
+    assert np.abs(again - alone).max() < np.radians(2), "the same hand next frame stays put"
+
+
+@check
 def the_motion_space_sees_the_hand_as_mujoco_does_and_keeps_its_ranges():
     import mujoco
     import torch
