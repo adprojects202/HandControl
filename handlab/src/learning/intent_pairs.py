@@ -1,5 +1,5 @@
 """Intent pairs: what a camera's tracker sees of a hand -> the robot pose that
-hand means - what a student learns to read intent from (step 1 of the
+hand means - what a model learns to read intent from (step 1 of the
 plan). From FreiHAND, whose hands are measured in 3D:
 
     the robot side    its true hands retargeted (human_retarget.

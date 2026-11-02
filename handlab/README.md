@@ -273,8 +273,9 @@ comes, checked on a recording of a left hand. (Recordings made before
 read.) `vision.mirror` (on by default) only flips the preview, like a
 mirror, which is easier to work in front of.
 
-Nothing reaches the robot yet: this is the observation side - what the hand
-is doing - for retargeting and context later.
+The tracked hand drives the robot only in *Live hand control*; *Mimic
+sessions* record it beside the robot pose meant, and Recordings use it
+after, step by step.
 
 ## Recordings
 
