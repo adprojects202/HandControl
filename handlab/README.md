@@ -351,6 +351,19 @@ of the time against 55% meant) - the physics policy, step 4, is to make
 contacts from what is meant. `scripts/fit_reader.py`, about 70 min on this
 Mac - `data/learning/reader.pt`.
 
+On your own recordings (`wilor/recording.py`, then `scripts/read_recordings.py`:
+WiLoR on the video, read at 20 Hz as live; no true robot pose, so how
+plausible): the gestures (12.5 s) and four with the red cube (3-6 s). The
+reader moves the hand smoothly where the solver shakes - a joint's speed
+changing 0.4-0.9 degrees a tick against 1.2-2.6, jumps over 20 degrees in
+0-1.2% of ticks against 0-20% - and at about half the solver's pace; the two
+4.6-8.8 degrees apart. It never closes a pinch: of the ticks your thumb
+meets a fingertip (WiLoR, under 0.25 palm lengths), the robot's thumb
+touches none, where the solver's touches 80-94% for the index and middle;
+the contacts it means catch 82% of the gestures' index pinches (10% false).
+Fingers go inside each other in up to 9-15% of ticks on two recordings (the
+solver: none).
+
 Step 4 is the **physics policy** (`src/learning/gpu_holds.py`, trained on the
 ClearML GPU): the hand keeping hold of an object while it follows what the
 reader makes of a person's hand. Its data are GRAB's holds
@@ -1022,6 +1035,8 @@ All take no arguments and read `settings.json`.
 | `scripts/fit_reader.py` | the reader, fitted 3 times and measured on clips it never saw, against the solver (about 70 min) |
 | `scripts/build_holds.py` | GRAB's one-hand holds onto the robot hand with their objects, the reader's motion for each, the starts settled (about 4 min) |
 | `wilor/grab.py` | GRAB's hands, their 21 points at 20 Hz, the objects' poses and meshes (about 1 min; in `.venv-wilor`) |
+| `wilor/recording.py` | WiLoR on every recording's video, following the hand the recording's steps followed -> `hands_wilor.npz` (about 15 s a recording; in `.venv-wilor`) |
+| `scripts/read_recordings.py` | the reader and the solver on those hands at 20 Hz: smoothness, pace, fingers inside, pinches made touches; a video of each into `renders/` (camera, reader's robot, solver's robot) |
 | `wilor/freihand.py` | WiLoR on FreiHAND's photos (about 2 h; in `.venv-wilor`: `../.venv-wilor/bin/python wilor/freihand.py`) |
 | `wilor/live.py` | WiLoR on the webcam, its hand drawn and the thumb's gaps to the fingertips (in `.venv-wilor`) |
 | `scripts/clearml_train.py` | trains on the ClearML agent's GPU as a pipeline and fetches the run (also *Train on ClearML*) |
@@ -1098,6 +1113,7 @@ src/
   learning/reader.py      the reader: the tracker's hands -> points in the motion space, contacts meant
   learning/hold_scene.py  the hand and one object that can be any of many (per world on the GPU)
   learning/holds.py       GRAB's one-hand holds onto the robot: objects placed, gravity, the reader's motion, starts
+  learning/read_recordings.py the reader and the solver on your recordings (WiLoR's hands), numbers and videos
   keys.py                 secrets (API keys, HF_TOKEN): environment, then .env
   assistant/claude.py     Anthropic Messages API
   assistant/openai_api.py OpenAI Responses API
@@ -1117,7 +1133,7 @@ src/
   viewer/assistant_panel.py the assistant's settings (in Recordings, step 1)
   app.py                wires it all together
 scripts/                helpers, no arguments
-wilor/                  run in .venv-wilor: the WiLoR hand tracker (model, live, freihand), GRAB's hands and meshes
+wilor/                  run in .venv-wilor: the WiLoR hand tracker (model, live, freihand, recordings), GRAB's hands and meshes
 ```
 
 ## Notes
