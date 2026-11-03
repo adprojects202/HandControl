@@ -1,5 +1,6 @@
 """The Learning panel: what to learn - object tracking (the general
-tracker) or hand motion (the hand alone taking a person's hand shapes) -
+tracker), hand motion (the hand alone taking a person's hand shapes) or
+holding objects (the physics policy: GRAB's objects kept in the hand) -
 its library, training, and its runs. Building and training each run as a
 process of their own (learning/background.py) - the window stays
 responsive, and a run goes on when the window closes; Cancel stops it.
@@ -14,7 +15,9 @@ responsive, and a run goes on when the window closes; Cancel stops it.
               and to holding still, which run Real to Sim's Run policy uses, Test
               for a run not yet tested; hand motion - the random motions and
               the recorded hands, next to holding still, which run
-              Real to Sim's Follow and Robot > Live use
+              Real to Sim's Follow and Robot > Live use; holding objects -
+              how many holds of people never trained on it keeps, next to
+              the reader's motion alone
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ from mujoco.experimental.dear_imgui import dear_imgui as imgui
 from mujoco.experimental.implot import implot
 
 from .. import settings
-from ..learning import camera_model, hand_library, mimic, remote, train, trajectories
+from ..learning import camera_model, hand_library, holds, mimic, remote, train, trajectories
 from .assistant_panel import AMBER
 from .form import GREEN, RED, SettingsForm, row, table
 
@@ -40,8 +43,12 @@ CURVES = {"object tracking": (("/track/turn_deg", "turn off (deg)", 1.0),
           "hand motion": (("/hand/angle_deg", "shape off (deg)", 1.0),
                           ("/hand/tip_mm", "tips off (mm)", 1.0),
                           ("/hand/touch_mm", "touches off (mm)", 1.0),
-                          ("Policy/mean_std", "exploration (x100)", 100.0))}
+                          ("Policy/mean_std", "exploration (x100)", 100.0)),
+          "holding objects": (("/hold/position_mm", "object off (mm)", 1.0),
+                              ("/hold/joint_deg", "joints off (deg)", 1.0),
+                              ("Policy/mean_std", "exploration (x100)", 100.0))}
 HAND = "hand motion"
+HOLD = "holding objects"
 
 
 class TaskStatus:
@@ -141,41 +148,55 @@ class LibrarySection:
         if table("learn"):
             row("learn", "what the policy learns:\nobject tracking - moving an object as a "
                          "recording did (the general tracker)\nhand motion - the hand alone "
-                         "taking a person's hand shapes as they move (on the ClearML GPU)")
+                         "taking a person's hand shapes as they move (on the ClearML GPU)\n"
+                         "holding objects - keeping hold of GRAB's objects while following "
+                         "the reader's motion (on the ClearML GPU)")
             self.form.choice("learning.learn")
             imgui.EndTable()
         self.form.draw_message()
-        hand = learn == HAND
-        self._describe(hand)
+        hand, hold = learn == HAND, learn == HOLD
+        task = "holds" if hold else "hand_library" if hand else "library"
+        self._describe(learn)
         for line in self._lines:
             imgui.TextDisabled(line)
         busy = self.poll.busy()
         imgui.BeginDisabled(busy)
-        if imgui.Button("Build library again" if self._exists else "Build library"):
-            self.poll.task.start("hand_library" if hand else "library")
+        what = "holds" if hold else "library"
+        if imgui.Button(f"Build {what} again" if self._exists else f"Build {what}"):
+            self.poll.task.start(task)
             self.poll.refresh()
         imgui.EndDisabled()
         imgui.SetItemTooltip(
-            ("the robot hand's motions to follow: random poses, the thumb touching "
+            ("GRAB's people holding an object in one hand, put onto the robot hand with "
+             "the object in it, the reader's motion for each, the starts settled in the "
+             "sim. Needs GRAB and the reader. About 4 min" if hold else
+             "the robot hand's motions to follow: random poses, the thumb touching "
              "fingertips in turn, hand signs, fingers curling in turn - each pose settled "
              "in the sim, touches made - and every recorded hand. About 4 min" if hand else
              "starts the hand can grip around where each recording's motion begins, "
              "generated motions from each, and the recordings' own - each tried by the "
              "planner. Needs recordings fitted in 3D (Real to Sim). About 30 min, "
              "on every core") + (" - something else is running" if busy else ""))
-        _progress(self.poll.get(), "hand_library" if hand else "library", self.poll)
+        _progress(self.poll.get(), task, self.poll)
 
-    def _describe(self, hand):
+    def _describe(self, learn):
         """The library's summary, re-read when the file or what is learnt
         changes."""
-        path = hand_library.LIBRARY if hand else trajectories.LIBRARY
+        hand = learn == HAND
+        path = {HAND: hand_library.LIBRARY, HOLD: holds.HOLDS}.get(learn, trajectories.LIBRARY)
         changed = [path, mimic.FOLDER, camera_model.MODEL] if hand else [path]
-        made = (hand, *(p.stat().st_mtime if p.exists() else None for p in changed))
+        made = (learn, *(p.stat().st_mtime if p.exists() else None for p in changed))
         if made == self._made:
             return
         self._made = made
         if hand:
             self._describe_hand()
+            return
+        if learn == HOLD:
+            self._exists = holds.HOLDS.exists()
+            saved = np.load(holds.HOLDS) if self._exists else None     # read as asked: small arrays only
+            self._lines = ([f"made {str(saved['made']).replace('T', ' ')}",
+                            *holds.report(saved).splitlines()] if saved else ["no holds yet"])
             return
         library = trajectories.load()
         self._exists = bool(library)
@@ -233,7 +254,8 @@ class TrainSection:
 
     def draw(self):
         method = settings.get("learning.method")
-        hand = settings.get("learning.learn") == HAND
+        learn = settings.get("learning.learn")
+        hand = learn in (HAND, HOLD)                   # the ClearML GPU only
         if not hand and table("training"):
             row("method", "how the policy learns:\nppo - rsl_rl's PPO, the policy finding its "
                           "own way by trial and error\nplanner_teacher - the planner labels "
@@ -268,6 +290,7 @@ class TrainSection:
                     low, high = settings.limits("learning.iterations")
                     row("rounds", f"PPO rounds\n{low} - {high}")
                     self.form.field("learning.iterations")
+                if learn == HAND:
                     row("goals", "what the policy sees as the hand shape to take:\n"
                                  "robot shapes - the clips' own\ncamera skeletons - as the "
                                  "camera gives a hand copying them: learnt from your Mimic "
@@ -278,13 +301,14 @@ class TrainSection:
             imgui.TreePop()
         self.form.draw_message()
         busy = self.poll.busy()
-        no_library = not (hand_library.LIBRARY if hand else trajectories.LIBRARY).exists()
+        no_library = not {HAND: hand_library.LIBRARY, HOLD: holds.HOLDS}.get(
+            learn, trajectories.LIBRARY).exists()
         imgui.BeginDisabled(busy or no_library or hand)
         if imgui.Button("Train"):
             self.poll.task.start("train")
             self.poll.refresh()
         imgui.EndDisabled()
-        imgui.SetItemTooltip("hand motion trains on the ClearML GPU only" if hand else
+        imgui.SetItemTooltip(f"{learn} trains on the ClearML GPU only" if hand else
                              "build the library first" if no_library else
                              "trains a new run here, then tests it on every motion - "
                              "the recordings being the one-shot test"
@@ -337,7 +361,8 @@ class RunsSection:
             return
         chosen = train.chosen_run(learn)
         imgui.TextDisabled("Real to Sim (Follow) and Robot > Live use the run picked here"
-                           if learn == HAND else "Real to Sim (Run policy) uses the run picked here")
+                           if learn == HAND else "the physics policy: nothing uses it yet"
+                           if learn == HOLD else "Real to Sim (Run policy) uses the run picked here")
         for folder in self._runs:
             config, evaluation, rows = self._read(folder)
             trained = any(folder.glob("model_*.pt"))
@@ -353,6 +378,8 @@ class RunsSection:
             if imgui.TreeNode(f"{label}###{folder.name}"):
                 if learn == HAND:
                     self._hand_results(folder, evaluation)
+                elif learn == HOLD:
+                    self._hold_results(folder, evaluation)
                 else:
                     self._results(folder, evaluation, trained)
                 _curve(f"##{folder.name}", rows, learn, 140)
@@ -393,6 +420,36 @@ class RunsSection:
                 imgui.TableNextColumn()
                 imgui.Text(" / ".join(median(results, prefix + key)
                                       for key in ("angle_deg", "tip_mm", "touch_mm")))
+        imgui.EndTable()
+
+    @staticmethod
+    def _hold_results(folder, evaluation):
+        """Per set of holds (people never trained on, and trained on), what
+        moved the hand: the share of holds kept to the end, the seconds kept
+        after the support, the object's and joints' medians off."""
+        if evaluation is None:
+            imgui.TextDisabled("not tested (the GPU tests it after training)")
+            return
+        if not imgui.BeginTable(f"results{folder.name}", 5,
+                                int(imgui.TableFlags.SizingStretchProp)
+                                | int(imgui.TableFlags.RowBg)):
+            return
+        for header in ("holds", "moved by", "kept / s after", "object mm / deg", "joints deg"):
+            imgui.TableSetupColumn(header)
+        imgui.TableHeadersRow()
+        for name, label in (("test", "never trained on"), ("fitted", "trained on")):
+            for mode, result in evaluation.get(name, {}).items():
+                imgui.TableNextRow()
+                imgui.TableNextColumn()
+                imgui.Text(f"{label} ({result['episodes']})" if mode == "policy" else "")
+                imgui.TableNextColumn()
+                imgui.Text(mode)
+                imgui.TableNextColumn()
+                imgui.Text(f"{result['held']:.0%} / {result['held_s']:.1f}")
+                imgui.TableNextColumn()
+                imgui.Text(f"{result['position_mm']:.0f} / {result['turn_deg']:.0f}")
+                imgui.TableNextColumn()
+                imgui.Text(f"{result['joint_deg']:.1f}")
         imgui.EndTable()
 
     def _results(self, folder, evaluation, trained):

@@ -14,8 +14,8 @@ should take 20 minutes took hours. Closing the lid on battery still sleeps it.
 The scripts report as they go into STATUS - also when started from a
 terminal, so the Learning panel shows those too:
 
-    task        "library", "hand_library", "train" or "clearml" (training on
-                the ClearML agent)
+    task        "library", "hand_library", "holds", "train" or "clearml"
+                (training on the ClearML agent)
     pid         its process
     state       "starting", "running", "done", "failed", "cancelled" - or
                 "stopped": the process ended without saying how
@@ -41,7 +41,7 @@ from ..paths import ROOT
 FOLDER = ROOT / "data" / "learning"
 STATUS = FOLDER / "status.json"
 SCRIPTS = {"library": "build_library.py", "hand_library": "build_hand_library.py",
-           "train": "train_tracker.py", "clearml": "clearml_train.py"}
+           "holds": "build_holds.py", "train": "train_tracker.py", "clearml": "clearml_train.py"}
 ACTIVE = ("starting", "running")
 
 

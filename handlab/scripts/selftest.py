@@ -2009,6 +2009,64 @@ def the_reader_reads_into_the_motion_space_and_follows_within_the_ranges():
 
 
 @check
+def each_world_holds_its_own_object_as_if_compiled_with_it():
+    import mujoco
+    from src.learning import hold_scene
+    tall = np.array([[x, y, z] for x in (-0.02, 0.02) for y in (-0.02, 0.02) for z in (-0.05, 0.06)])
+    flat = np.array([[x, y, z] for x in (-0.04, 0.05) for y in (-0.04, 0.04) for z in (0.0, 0.02)])
+    spec, parts = hold_scene.build({"tall": tall, "flat": flat}, 0.5)
+    model = spec.compile()
+    fields = hold_scene.variant_fields(spec, model)
+    assert list(fields["names"]) == ["tall", "flat"] and set(parts) <= set(hold_scene.FINGERS)
+    assert {"palm", "thumb", "index"} <= set(parts) and model.nsensor == len(parts)
+    data = mujoco.MjData(model)
+    hold_scene.use(model, data, fields, 1, 0.05)               # the flat one, 50 g
+    alone = spec.copy()
+    alone.geom(hold_scene.OBJECT).meshname = hold_scene.PREFIX + "flat"
+    compiled = alone.compile()
+    geom, body = model.geom(hold_scene.OBJECT).id, model.body(hold_scene.OBJECT).id
+    assert model.geom_dataid[geom] == compiled.geom_dataid[geom] != fields["geom_dataid"][0]
+    for field in ("geom_pos", "geom_quat", "geom_rbound", "geom_aabb"):
+        assert np.allclose(getattr(model, field)[geom], getattr(compiled, field)[geom], atol=1e-9), field
+    ratio = 0.05 / compiled.body_mass[body]
+    assert np.isclose(model.body_mass[body], 0.05)
+    assert np.allclose(model.body_inertia[body], compiled.body_inertia[body] * ratio, rtol=1e-6)
+    assert np.allclose(model.body_ipos[body], compiled.body_ipos[body], atol=1e-9)
+
+
+@check
+def a_hold_puts_the_object_where_it_was_in_the_palm_and_needs_it_held_up_alone():
+    from scipy.spatial.transform import Rotation
+    from src.learning import holds
+    from src.learning.handmotion import palm_frame
+    rng = np.random.default_rng(3)
+    world = rng.normal(scale=0.03, size=(4, 21, 3)) + [0.2, -0.1, 1.0]
+    world[:, 9] = world[:, 0] + [0.09, 0.0, 0.01]               # a palm about 9 cm long
+    world[:, 5], world[:, 17] = world[:, 0] + [0.08, 0.03, 0.0], world[:, 0] + [0.07, -0.03, 0.0]
+    pose = np.column_stack([rng.normal(scale=0.5, size=(4, 3)), world[:, 0] + [0.11, 0.02, 0.04]])
+    robot = (np.array([0.1, 0.2, 0.3]), Rotation.from_euler("xyz", [0.3, -0.2, 1.1]).as_matrix())
+    for side in ("Left", "Right"):
+        position, quat, gravity = holds._onto_robot(world, side, pose, robot, 1.4)
+        wrist, axes, _ = palm_frame(world, side)
+        mirror = holds.MIRROR if side == "Right" else np.eye(3)
+        person = np.einsum("tji,tj->ti", axes, pose[:, 3:] - wrist) @ mirror      # in their palm, as in_palm
+        assert np.allclose((position - robot[0]) @ robot[1], 1.4 * person, atol=1e-5)
+        assert np.allclose(np.linalg.norm(gravity, axis=1), 9.81, atol=1e-4)
+        assert np.allclose(gravity @ robot[1], np.einsum("tji,j->ti", axes, holds.GRAVITY) @ mirror, atol=1e-4)
+        assert np.allclose(np.linalg.det(Rotation.from_quat(quat, scalar_first=True).as_matrix()), 1.0)
+    contact = np.zeros((60, 2, 16), bool)
+    contact[5:50, 0, [1, 4]] = True                             # thumb and index on it
+    contact[20:22, 0] = False                                   # labels dropping out a moment
+    lifted = np.ones(60, bool)
+    assert holds._holds(contact, 0, lifted) == [(5, 50)]
+    other = contact.copy()
+    other[30:35, 1, 0] = True                                   # the other hand on it too
+    assert holds._holds(other, 0, lifted) == [(5, 30)]
+    lifted[40:] = False                                         # resting on the table
+    assert holds._holds(contact, 0, lifted) == [(5, 40)]
+
+
+@check
 def fingers_inside_each_other_cost_and_their_gradient_undoes_it():
     import torch
     from src.learning.hand_contacts import HandContacts

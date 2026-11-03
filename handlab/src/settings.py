@@ -233,6 +233,7 @@ DEFAULTS = {
         # copying them (Mimic sessions; learning/gpu_hand.py GOALS).
         "hand_goals": "robot shapes",
         "hand_run": "",         # the hand-motion run Follow and Live use; "" = the newest
+        "hold_run": "",         # the physics policy's run (holding objects); "" = the newest
         # Training on the ClearML agent's GPU (src/learning/remote.py, gpu.py):
         # its queue, and how many task sims the GPU steps together.
         "clearml_queue": "windows-rtx3090",
@@ -355,7 +356,7 @@ CHOICES = {
                       "facebook/sam3"),
     "assistant.claude_effort": ("low", "medium", "high", "xhigh", "max"),
     "learning.method": ("ppo", "planner_teacher"),
-    "learning.learn": ("object tracking", "hand motion"),
+    "learning.learn": ("object tracking", "hand motion", "holding objects"),
     "learning.hand_goals": ("robot shapes", "camera skeletons"),
     "learning.mimic_mode": ("motions", "poses"),
     "learning.live_input": ("mapping", "camera shape"),

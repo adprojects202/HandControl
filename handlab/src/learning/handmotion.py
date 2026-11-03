@@ -130,20 +130,27 @@ def human_points(world, side):
 def in_palm(world, side):
     """MediaPipe world landmarks (..., 21, 3) of a `side` hand -> all 21 in
     its palm frame, palm lengths; a right hand mirrored onto a left."""
+    wrist, axes, length = palm_frame(world, side)
+    local = np.einsum("...ji,...pj->...pi", axes, world - wrist[..., None, :]) / length[..., None, None]
+    if side != "Left":
+        local[..., 1] *= -1.0
+    return local
+
+
+def palm_frame(world, side):
+    """A `side` hand's palm frame from its landmarks (..., 21, 3): the
+    wrist (..., 3), axes (..., 3, 3) as columns - to the middle knuckle,
+    across, out of the palm - and the palm length (...,), the landmarks'
+    units. in_palm's points are in it (a right hand's then mirrored)."""
     x = world[..., MIDDLE_KNUCKLE, :] - world[..., WRIST, :]
-    length = np.linalg.norm(x, axis=-1, keepdims=True)
-    x = x / length
+    length = np.linalg.norm(x, axis=-1)
+    x = x / length[..., None]
     z = np.cross(world[..., INDEX_KNUCKLE, :] - world[..., WRIST, :],
                  world[..., PINKY_KNUCKLE, :] - world[..., WRIST, :])
     z = z * (-1.0 if side == "Left" else 1.0)                 # out of the palm
     z = z - (z * x).sum(axis=-1, keepdims=True) * x
     z = z / np.linalg.norm(z, axis=-1, keepdims=True)
-    axes = np.stack([x, np.cross(z, x), z], axis=-1)          # columns
-    local = np.einsum("...ji,...pj->...pi", axes,
-                      world - world[..., WRIST:WRIST + 1, :]) / length[..., None]
-    if side != "Left":
-        local[..., 1] *= -1.0
-    return local
+    return world[..., WRIST, :], np.stack([x, np.cross(z, x), z], axis=-1), length
 
 
 def human_features(world, side):

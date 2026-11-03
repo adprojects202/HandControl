@@ -8,11 +8,13 @@ a ClearML pipeline, started from this Mac:
                         then the test; the run folder comes back as an
                         artifact
 
-What it learns is `learning.learn`: "object tracking" (gpu.py, the task sim)
-or "hand motion" (gpu_hand.py, the hand alone). What it trains on goes up as
-a ClearML dataset - the bundle: this Mac's library and sim as MJCF (the
-model this Mac compiles, with this Mac's settings) - `export_bundle` for
-object tracking, hand_library.export_bundle for hand motion. The
+What it learns is `learning.learn`: "object tracking" (gpu.py, the task sim),
+"hand motion" (gpu_hand.py, the hand alone) or "holding objects" (gpu_holds.py,
+the physics policy). What it trains on goes up as a ClearML dataset - the
+bundle: this Mac's library and sim as MJCF (the model this Mac compiles, with
+this Mac's settings) - `export_bundle` for object tracking,
+hand_library.export_bundle for hand motion, holds.export_bundle for holding
+objects. The
 step is scripts/clearml_gpu_step.py from the GitHub repository at this very
 commit, so the code must be committed and pushed first (`blocked` says so;
 settings.json need not be - it is in the bundle). The agent installs
@@ -42,7 +44,7 @@ import mujoco
 
 from .. import settings
 from ..paths import ROOT
-from . import hand_library, trajectories
+from . import hand_library, holds, trajectories
 from .train import RUNS
 
 PROJECT = "HandRL"
@@ -110,6 +112,8 @@ def run(progress=lambda done, total, text="": None):
         dataset = Dataset.create(dataset_project=PROJECT, dataset_name=f"handlab {learn} bundle")
         if learn == "hand motion":
             bundle = hand_library.export_bundle(Path(tmp) / "bundle", progress)
+        elif learn == "holding objects":
+            bundle = holds.export_bundle(Path(tmp) / "bundle")
         else:
             bundle = export_bundle(Path(tmp) / "bundle")
         dataset.add_files(str(bundle))
@@ -164,10 +168,11 @@ def _mirror(pipe, progress):
             continue
         scalars = task.get_last_scalar_metrics()
         # ClearML files a tag "/hand/angle_deg" as title "_hand", series "angle_deg".
-        off = [scalars.get(title, {}).get(series, {}).get("last")
-               for title, series in (("_track", "turn_deg"), ("_hand", "angle_deg"))]
-        off = [value for value in off if value is not None]
-        note = f", {off[0]:.1f} deg off while training" if off else ""
+        off = [(scalars.get(title, {}).get(series, {}).get("last"), unit)
+               for title, series, unit in (("_track", "turn_deg", "deg"), ("_hand", "angle_deg", "deg"),
+                                           ("_hold", "position_mm", "mm"))]
+        off = [(value, unit) for value, unit in off if value is not None]
+        note = f", {off[0][0]:.1f} {off[0][1]} off while training" if off else ""
         progress(task.get_progress() or 0, 100, f"{name} on the agent: {status}{note}")
 
 

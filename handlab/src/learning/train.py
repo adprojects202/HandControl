@@ -49,7 +49,8 @@ from .trajectories import load
 RUNS = ROOT / "data" / "learning" / "runs"
 # What a run learns (run.json "learn"; a run without one tracks objects), and
 # the setting naming the run of each that the app uses.
-LEARN = {"object tracking": "learning.run", "hand motion": "learning.hand_run"}
+LEARN = {"object tracking": "learning.run", "hand motion": "learning.hand_run",
+         "holding objects": "learning.hold_run"}
 PROGRESS = "progress.jsonl"
 STEPS_PER_ENV = 24
 CONFIG = {

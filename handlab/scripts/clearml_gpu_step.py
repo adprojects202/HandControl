@@ -2,8 +2,9 @@
 src/learning/remote.py): PPO over the bundle's sims on the GPU, the test,
 and the run folder uploaded as the "run" artifact. Parameters ("handlab"):
 bundle (a ClearML dataset id), learn ("object tracking": gpu.py; "hand
-motion": gpu_hand.py), envs, iterations, and the contact solver's
-solver_iterations and linesearch_iterations (gpu.py). Not for running by
+motion": gpu_hand.py; "holding objects": gpu_holds.py), envs, iterations,
+and the contact solver's solver_iterations and linesearch_iterations
+(gpu.py). Not for running by
 hand: the pipeline sets them - or clone the task in ClearML and change them
 there.
 """
@@ -21,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import torch  # noqa: E402
 from clearml import Dataset, Task  # noqa: E402
 
-from src.learning import background, gpu, gpu_hand, train  # noqa: E402
+from src.learning import background, gpu, gpu_hand, gpu_holds, train  # noqa: E402
 
 PARAMETERS = {"bundle": "", "learn": "object tracking", "envs": 8192, "iterations": 1500,
               "solver_iterations": gpu.SOLVER_ITERATIONS,
@@ -47,7 +48,7 @@ def main():
     learn = params["learn"]
     if learn not in train.LEARN:
         raise ValueError(f"learn is {learn!r}: one of {', '.join(train.LEARN)}")
-    module = gpu_hand if learn == "hand motion" else gpu
+    module = {"hand motion": gpu_hand, "holding objects": gpu_holds}.get(learn, gpu)
     meta = json.loads((bundle / "bundle.json").read_text())
     (folder / "run.json").write_text(json.dumps({
         "learn": learn, "method": "ppo", "device": torch.cuda.get_device_name(0),
@@ -56,12 +57,14 @@ def main():
         "config": train.CONFIG,
         **({"env": {name: getattr(gpu_hand, name) for name in gpu_hand.SETTINGS},
             **{key: meta[key] for key in ("goals", "camera_model") if key in meta}}
-           if module is gpu_hand else {})}, indent=2))
+           if module is gpu_hand else {}),
+        **({"env": {name: getattr(gpu_holds, name) for name in gpu_holds.SETTINGS}}
+           if module is gpu_holds else {})}, indent=2))
     writer = {"class_name": "src.learning.train:ProgressWriter", "iterations": iterations}
     module.train(bundle, folder, envs, iterations, train.CONFIG, writer, physics=physics)
     results = module.evaluate(bundle, folder, train.latest_checkpoint(folder), train.CONFIG,
                               physics=physics)
-    if module is gpu_hand:                     # the hand library goes with the run
+    if module in (gpu_hand, gpu_holds):        # what it trained on goes with the run
         shutil.copy(bundle / "bundle.json", folder / "bundle.json")
     (folder / "evaluation.json").write_text(json.dumps(results, indent=2))
     task.upload_artifact("run", artifact_object=_pack(folder), wait_on_upload=True)

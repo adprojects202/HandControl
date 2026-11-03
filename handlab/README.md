@@ -351,6 +351,50 @@ of the time against 55% meant) - the physics policy, step 4, is to make
 contacts from what is meant. `scripts/fit_reader.py`, about 70 min on this
 Mac - `data/learning/reader.pt`.
 
+Step 4 is the **physics policy** (`src/learning/gpu_holds.py`, trained on the
+ClearML GPU): the hand keeping hold of an object while it follows what the
+reader makes of a person's hand. Its data are GRAB's holds
+(`src/learning/holds.py`, `scripts/build_holds.py`, ~4 min): spans of a take
+where one hand holds the object alone - the thumb and another part on it,
+the other hand off it, the object up off the table - for a second or more;
+3,311 starts every 0.5 s along them, 622 of them of people 9-10. Each goes
+onto the robot as it was in the person's palm frame: the object where it
+was (the person's metres times the robot's palm length over theirs, its
+mesh scaled alike, a right hand's mirrored), gravity turning as their palm
+turned, the robot's motion the retargeted one, and what the policy is given
+the reader's, on the tracker's errors (3 draws). Every world of the GPU has
+its own object (`src/learning/hold_scene.py`: all 526 object meshes - by
+object, person and side - are in the model, and MuJoCo Warp's batched
+`geom_dataid` points each world's at one, its bounds and inertia with it,
+as mjlab's heterogeneous worlds do; checked against compiling it alone).
+MuJoCo collides the meshes' convex hulls: a mug's handle is filled in.
+
+Placed by the person's grasp, the robot's fingers - other lengths, other
+proportions - do not reach the object: at the retargeted pose nothing
+touches. So each start closes every finger GRAB has on the object until it
+meets it (along the gap's gradient, the sim's own distances), presses it on
+with the servo's whole torque, and settles with the object pinned; the
+thumb and another finger reach it in 92-95% of the starts. Let go, the
+object falls anyway - the fingers press, but not against each other, and
+the pin held what they pushed: with the servos on the retargeted motion
+for a second, the object stays within 20 mm in 1-2% of the starts, 3-5%
+keeping the start's closing too. A grip that holds is the policy's to find.
+
+Each step (20 Hz) it adds up to 0.5 rad to the reader's joints. The object
+starts carried - its weight and a stiff spring to where it should be - and
+the support fades out over 0.5 s, as a person hands an object over. Its
+reward: still holding, the object where the person's was (position and
+turn), the joints near the person's, GRAB's fingers on the object on it,
+and small costs on the correction and its changes; further than 50 mm off,
+the object is dropped and the episode ends. It sees what the real hand
+has: its joints, its targets, the reader's last 3 frames and the contacts
+it means, gravity in its palm frame; the critic also the object, the true
+joints, the support left and each link's gap to the object. Tested on the
+reachable holds of people 9-10 and as many of the others: the share kept
+to the end, seconds kept after the support, the object's and joints'
+errors - against the reader's joints alone, and with the start's closing
+held. Objects weigh 20-100 g; the servos give 0.11 N m at 300 mA.
+
 ## The control loop
 
 ```
@@ -850,7 +894,8 @@ and an error plot).
 **Learning** (left, beside Real to Sim; see *Learning: a general tracker* and
 *Learning: hand motion*):
 
-- **learn** - object tracking or hand motion; the sections below follow it.
+- **learn** - object tracking, hand motion or holding objects (the physics
+  policy, step 4 of *Intent from the camera*); the sections below follow it.
 - **Library** - what the library holds (when made, starts, feasible
   generated motions by kind, the recordings kept for the test); *Build
   library*, with progress, time left and *Cancel*.
@@ -866,6 +911,11 @@ and an error plot).
   `learning.hand_run`, which Live uses too); *Test* for a tracker run not
   yet tested. A hand-motion run's test is per kind of clip and per
   recording: segment angle, fingertips and touches, next to holding still.
+  A holding-objects run's (*Build holds* in Library; it trains on the
+  ClearML GPU only) is per set of holds - people never trained on, and
+  trained on - and what moved the hand: the policy, the reader's joints
+  alone, and those with the start's closing held: holds kept to the end,
+  seconds kept after the support, the object and joints off.
 
 Building and training run as processes of their own
 (`src/learning/background.py`), reporting into `data/learning/status.json`:
@@ -940,7 +990,7 @@ settings.set("hardware.port", "/dev/cu.usbserial-XYZ"); settings.save()
 | `robot.urdf` | the robot; sliders, world and motor map all follow it |
 | `world.*` | timestep, mount position and orientation, each hand's colour and emission (encoder, command, plan) |
 | `object.*` | calibration box: shown, fixed/floating, size, weight, friction, position, colour; *training*: where Real to Sim puts a recording's object (fixed pose / from the hand; its *placement*) |
-| `learning.*` | what is learnt (object tracking or hand motion); the tracker's training: method, sim copies and rounds (PPO), rounds (teacher); the tracker run Real to Sim uses and the hand-motion run Follow and Live use (`""` = newest); the ClearML queue and GPU sim copies |
+| `learning.*` | what is learnt (object tracking, hand motion or holding objects); the tracker's training: method, sim copies and rounds (PPO), rounds (teacher); the tracker run Real to Sim uses, the hand-motion run Follow and Live use and the physics policy's run (`""` = newest); the ClearML queue and GPU sim copies |
 | `control.max_speed` | command slew limit, rad/s |
 | `hardware.port` | `""` none, `"mock"` fake bus that echoes commands, or the U2D2 port |
 | `hardware.*` | baud, write/read rates, current limit, velocity profile, PID |
@@ -960,7 +1010,7 @@ All take no arguments and read `settings.json`.
 
 | script | does |
 | --- | --- |
-| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays, the plan stage, the task sim's weld and servos, a grip that holds, the plan step, out-of-date files, generated motions, the tracker's environment, hand shapes (person and robot), the hand library's touches and key poses, a person's pinch made a touch unless an object is between, retargeting in motion staying put, the motion space's kinematics and ranges, fingers inside each other and the gradient that undoes it, the tracker noise (misread, lost when hidden, still a palm frame), GRAB's cameras, the reader's shapes and ranges |
+| `scripts/selftest.py` | headless checks: settings, URDF, world, orientations, calibration object, controller, bus and temperature protection (mock bus), hand tracker, camera thread (fake camera), recording round trip, assistant, task-context schema and its API requests (fake provider, no network), segment step (fake model), hands step (flips, phantoms, gaps), object step (known rotations), camera calibration (synthetic and stretched boards), old-format hand labels, box pose from its outline, palm axes, transfer onto the robot hand, ArUco pose, markers in the preview, Fit 3D with a marker (end to end), overlays, the plan stage, the task sim's weld and servos, a grip that holds, the plan step, out-of-date files, generated motions, the tracker's environment, hand shapes (person and robot), the hand library's touches and key poses, a person's pinch made a touch unless an object is between, retargeting in motion staying put, the motion space's kinematics and ranges, fingers inside each other and the gradient that undoes it, the tracker noise (misread, lost when hidden, still a palm frame), GRAB's cameras, the reader's shapes and ranges, each world's object as if compiled with it, a hold's object in the palm (mirrored too) and what counts as a hold |
 | `scripts/render.py` | `renders/world.png` - the world without a window |
 | `scripts/build_library.py` | the tracker's trajectory library from the recordings (about 30 min; also the Learning panel's *Build library*) |
 | `scripts/build_hand_library.py` | the hand-motion library: random poses, touches, signs, waves and every recorded hand (about 4 min; also *Build library* learning hand motion) |
@@ -970,6 +1020,7 @@ All take no arguments and read `settings.json`.
 | `scripts/build_grab.py` | GRAB's people handling objects, their hands put onto the robot (about 20 min) |
 | `scripts/build_grab_views.py` | where cameras could see GRAB's hands from, and which points the object or table hides (about 10 s) |
 | `scripts/fit_reader.py` | the reader, fitted 3 times and measured on clips it never saw, against the solver (about 70 min) |
+| `scripts/build_holds.py` | GRAB's one-hand holds onto the robot hand with their objects, the reader's motion for each, the starts settled (about 4 min) |
 | `wilor/grab.py` | GRAB's hands, their 21 points at 20 Hz, the objects' poses and meshes (about 1 min; in `.venv-wilor`) |
 | `wilor/freihand.py` | WiLoR on FreiHAND's photos (about 2 h; in `.venv-wilor`: `../.venv-wilor/bin/python wilor/freihand.py`) |
 | `wilor/live.py` | WiLoR on the webcam, its hand drawn and the thumb's gaps to the fingertips (in `.venv-wilor`) |
@@ -1031,6 +1082,7 @@ src/
   learning/handmotion.py  hand shapes: person and robot, the policy's input, its errors
   learning/hand_library.py  the hand-motion library: random, touch, sign, wave, recorded
   learning/gpu_hand.py    the hand-motion environment on the GPU, PPO, test
+  learning/gpu_holds.py   the physics policy's environment on the GPU: holding GRAB's objects, PPO, test
   learning/hand_follow.py the hand-motion policy on this Mac (CpuHandEnv)
   learning/live.py        Live: the policy following the camera's hand
   learning/mimic.py       Mimic sessions: your hand on camera with the robot pose meant
@@ -1044,6 +1096,8 @@ src/
   learning/grab.py        GRAB: people's hands on objects, put onto the robot; what a camera loses
   learning/tracker_noise.py what a tracker makes of a hand: WiLoR's own errors, misreads, hidden, lost
   learning/reader.py      the reader: the tracker's hands -> points in the motion space, contacts meant
+  learning/hold_scene.py  the hand and one object that can be any of many (per world on the GPU)
+  learning/holds.py       GRAB's one-hand holds onto the robot: objects placed, gravity, the reader's motion, starts
   keys.py                 secrets (API keys, HF_TOKEN): environment, then .env
   assistant/claude.py     Anthropic Messages API
   assistant/openai_api.py OpenAI Responses API
