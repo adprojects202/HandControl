@@ -408,6 +408,16 @@ to the end, seconds kept after the support, the object's and joints'
 errors - against the reader's joints alone, and with the start's closing
 held. Objects weigh 20-100 g; the servos give 0.11 N m at 300 mA.
 
+Half the worlds play free clips instead - no object, the thumb meeting
+fingertips: on your recordings the reader means those touches but its
+motion leaves the thumb short (above). 1,500 clips of FreiHAND's training
+poses, minimum jerk between key poses as the reader's clips, half the key
+poses ones where the thumb touches a fingertip (FreiHAND has few); 300 of
+its evaluation poses to test. There the reward is the person's joints and
+the thumb tip's distance to each fingertip as theirs (retargeted), most
+where they touch; tested as the touches made and made where there are
+none, against the reader's joints alone.
+
 ## The control loop
 
 ```

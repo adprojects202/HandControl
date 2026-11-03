@@ -142,10 +142,12 @@ def clips(noise, seed=0):
     return out
 
 
-def _pose_clip(person, joints, noise, rng):
-    """Key poses drawn from a set, both hands timed as the library's random
-    clips (minimum jerk between): no object, nothing hidden."""
-    keys = rng.integers(len(joints), size=int(rng.integers(*hand_library.POSES)))
+def _pose_clip(person, joints, noise, rng, keys=None):
+    """Key poses drawn from a set (or `keys`, their rows), both hands timed
+    as the library's random clips (minimum jerk between): no object,
+    nothing hidden."""
+    if keys is None:
+        keys = rng.integers(len(joints), size=int(rng.integers(*hand_library.POSES)))
     hold = [round(rng.uniform(*hand_library.HOLD_S) * RATE) for _ in keys]
     move = [max(2, round(rng.uniform(*hand_library.MOVE_S) * RATE)) for _ in keys[1:]] + [0]
     moved = hand_library.frames(person[keys].reshape(len(keys), -1), hold, move).reshape(-1, POINTS, 3)

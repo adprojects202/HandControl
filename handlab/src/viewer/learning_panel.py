@@ -46,6 +46,7 @@ CURVES = {"object tracking": (("/track/turn_deg", "turn off (deg)", 1.0),
                           ("Policy/mean_std", "exploration (x100)", 100.0)),
           "holding objects": (("/hold/position_mm", "object off (mm)", 1.0),
                               ("/hold/joint_deg", "joints off (deg)", 1.0),
+                              ("/pinch/touch_mm", "touches off (mm)", 1.0),
                               ("Policy/mean_std", "exploration (x100)", 100.0))}
 HAND = "hand motion"
 HOLD = "holding objects"
@@ -424,30 +425,34 @@ class RunsSection:
 
     @staticmethod
     def _hold_results(folder, evaluation):
-        """Per set of holds (people never trained on, and trained on), what
-        moved the hand: the share of holds kept to the end, the seconds kept
-        after the support, the object's and joints' medians off."""
+        """Per set (holds and free clips, never trained on and trained on),
+        what moved the hand: for holds the share kept to the end, the
+        seconds kept after the support, the object's and joints' medians
+        off; for free clips the joints off and the person's touches made."""
         if evaluation is None:
             imgui.TextDisabled("not tested (the GPU tests it after training)")
             return
-        if not imgui.BeginTable(f"results{folder.name}", 5,
+        if not imgui.BeginTable(f"results{folder.name}", 4,
                                 int(imgui.TableFlags.SizingStretchProp)
                                 | int(imgui.TableFlags.RowBg)):
             return
-        for header in ("holds", "moved by", "kept / s after", "object mm / deg", "joints deg"):
+        for header in ("set", "moved by", "holds: kept / s after / object mm / deg\n"
+                       "free: touches made / false", "joints deg"):
             imgui.TableSetupColumn(header)
         imgui.TableHeadersRow()
-        for name, label in (("test", "never trained on"), ("fitted", "trained on")):
-            for mode, result in evaluation.get(name, {}).items():
+        for name, modes in evaluation.items():
+            for mode, result in modes.items():
                 imgui.TableNextRow()
                 imgui.TableNextColumn()
-                imgui.Text(f"{label} ({result['episodes']})" if mode == "policy" else "")
+                imgui.Text(f"{name} ({result['episodes']})" if mode == "policy" else "")
                 imgui.TableNextColumn()
                 imgui.Text(mode)
                 imgui.TableNextColumn()
-                imgui.Text(f"{result['held']:.0%} / {result['held_s']:.1f}")
-                imgui.TableNextColumn()
-                imgui.Text(f"{result['position_mm']:.0f} / {result['turn_deg']:.0f}")
+                if "held" in result:
+                    imgui.Text(f"{result['held']:.0%} / {result['held_s']:.1f} / "
+                               f"{result['position_mm']:.0f} / {result['turn_deg']:.0f}")
+                else:
+                    imgui.Text(f"{result['touches_made']:.0%} / {result['touches_false']:.1%}")
                 imgui.TableNextColumn()
                 imgui.Text(f"{result['joint_deg']:.1f}")
         imgui.EndTable()

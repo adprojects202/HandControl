@@ -1,6 +1,7 @@
-"""The physics policy (step 4) on an NVIDIA GPU: the robot hand keeping hold
-of GRAB's objects while it follows what the reader makes of a person's hand
-- thousands of hand sims with an object each, stepped at once by MuJoCo
+"""The physics policy (step 4) on an NVIDIA GPU: the robot hand doing what a
+person's hand does, from what the reader makes of it - keeping hold of
+GRAB's objects, and closing the thumb on a fingertip where the person does -
+thousands of hand sims, most with an object each, stepped at once by MuJoCo
 Warp (gpu.Worlds), PPO (rsl_rl) on the GPU.
 
     env = GpuHoldEnv(bundle, envs=8192)           # rsl_rl's VecEnv
@@ -35,15 +36,32 @@ Its reward, each step:
     - RESIDUAL_COST |correction|^2 - CHANGE_COST |target change|^2
 
 An object further than DROP_M from where it should be is dropped: the
-episode ends. Physics, the target arriving late and the joints read are
+episode ends.
+
+FREE_SHARE of the worlds play holds.py's free clips instead: no object
+(its geom points at no mesh, held out of the way), the person's hand
+moving through FreiHAND's poses, half of them the thumb on a fingertip -
+which the reader means (its contacts) but whose thumb it leaves short.
+Their reward:
+
+    FREE_JOINT_WEIGHT exp(-joint error / JOINT_SCALE)
+    + PINCH_WEIGHT exp(-pinch error / PINCH_SCALE)     the thumb tip's
+                                                 distance to each fingertip
+                                                 as the person's (robot's
+                                                 retargeted), palm lengths
+    + TOUCH_WEIGHT exp(-touch error / TOUCH_SCALE)    those the person has
+                                                 touching (under TOUCH_PL),
+                                                 where there are any
+    - the same costs Physics, the target arriving late and the joints read are
 randomized as the tracker's are (env.py).
 
 Observations. "policy" - what the real hand has: its joints (read with
 noise) now and a step before, its servo targets, the reader's joints for
 the last READ_FRAMES frames and the contacts it means now, and gravity in
-the palm frame (the mount's, on the real hand). "privileged" (the critic
-only): the object's pose and speed against where it should be, the true
-joints, the support left, each hand body's gap to the object, the physics
+the palm frame (the mount's, on the real hand) - never whether there is an
+object. "privileged" (the critic only): the object's pose and speed
+against where it should be, the true joints and pinches, the support left,
+each hand body's gap to the object, whether the clip is free, the physics
 drawn.
 
 The bundle (holds.export_bundle, made on the Mac): holds.npz - the scene
@@ -65,6 +83,7 @@ from tensordict import TensorDict
 from . import env as cpu
 from . import hold_scene
 from .gpu import LINESEARCH_ITERATIONS, SOLVER_ITERATIONS, Worlds
+from .handmotion import TOUCH_PL
 
 RATE = 20
 RESIDUAL_RAD = 0.5
@@ -83,10 +102,18 @@ CONTACT_WEIGHT = 0.5
 RESIDUAL_COST = 0.05
 CHANGE_COST = 0.5
 MASS_KG = (0.02, 0.10)
+FREE_SHARE = 0.5                 # of the worlds, on free clips
+FREE_JOINT_WEIGHT = 1.0
+PINCH_WEIGHT = 1.0
+PINCH_SCALE = 0.08               # palm lengths, the mean over the three
+TOUCH_WEIGHT = 1.0
+TOUCH_SCALE = 0.03               # palm lengths (~4 mm)
+TIPS = {"thumb": 3, "index": 7, "middle": 11, "ring": 15}   # in robot_chain's order
 SETTINGS = ("RESIDUAL_RAD", "READ_FRAMES", "ASSIST_S", "ASSIST_STIFFNESS", "ASSIST_DAMPING",
             "DROP_M", "HOLD_WEIGHT", "POSITION_SCALE", "ROTATION_WEIGHT", "ROTATION_SCALE",
             "JOINT_WEIGHT", "JOINT_SCALE", "CONTACT_WEIGHT", "RESIDUAL_COST", "CHANGE_COST",
-            "MASS_KG")
+            "MASS_KG", "FREE_SHARE", "FREE_JOINT_WEIGHT", "PINCH_WEIGHT", "PINCH_SCALE",
+            "TOUCH_WEIGHT", "TOUCH_SCALE")
 MODES = ("policy", "reader", "reader and grip")   # what moves the hand (evaluate)
 
 
@@ -95,11 +122,13 @@ class GpuHoldEnv(VecEnv):
                  device="cuda:0", iterations=SOLVER_ITERATIONS,
                  linesearch=LINESEARCH_ITERATIONS):
         """`episodes`: which of holds.npz's to play (default: the reachable
-        ones of the people fitted on); with `cycle` world i plays
-        episodes[i % len(episodes)] - its object the episode's - else each
-        world's object is drawn as often as the episodes have it, and its
-        episodes drawn from those with it. Without `randomize`: nominal
-        physics, no noise or lag, the reader's first draw."""
+        holds of the people fitted on and the free clips of FreiHAND's
+        training poses); with `cycle` world i plays episodes[i % len(episodes)]
+        - its object the episode's - else FREE_SHARE of the worlds play the
+        free clips, and each other world's object is drawn as often as the
+        holds have it, its episodes drawn from those with it. Without
+        `randomize`: nominal physics, no noise or lag, the reader's first
+        draw."""
         bundle = Path(bundle)
         holds = dict(np.load(bundle / "holds.npz"))
         self.holds = holds
@@ -125,14 +154,20 @@ class GpuHoldEnv(VecEnv):
         if cycle:
             world_episode = self.episodes[np.arange(envs) % len(self.episodes)]
         else:
-            world_episode = self.episodes[rng.integers(len(self.episodes), size=envs)]
+            free = holds["variant"][self.episodes] < 0
+            share = FREE_SHARE if free.any() and (~free).any() else float(free.all())
+            kinds = np.arange(envs) < round(share * envs)                  # a free world
+            world_episode = np.where(kinds, rng.choice(self.episodes[free] if free.any() else self.episodes, envs),
+                                     rng.choice(self.episodes[~free] if (~free).any() else self.episodes, envs))
         variant = holds["variant"][world_episode]
         mass = (rng.uniform(*MASS_KG, envs) if randomize else np.full(envs, np.mean(MASS_KG)))
         friction = rng.uniform(*cpu.FRICTION_SCALE, envs) if randomize else np.ones(envs)
         self._objects(variant, mass, friction)
         self.variant = tensor(variant, torch.long)
+        self.free = self.variant < 0
         self.world_episode = tensor(world_episode, torch.long)
-        pools = [self.episodes[holds["variant"][self.episodes] == v] for v in range(variant.max() + 1)]
+        # pool v + 1: the episodes of object v; pool 0: the free clips
+        pools = [self.episodes[holds["variant"][self.episodes] == v] for v in range(-1, variant.max() + 1)]
         self.pool_size = tensor([len(p) for p in pools], torch.long)
         self.pool = tensor(np.stack([np.pad(p, (0, max(map(len, pools)) - len(p))) for p in pools]),
                            torch.long)
@@ -147,8 +182,10 @@ class GpuHoldEnv(VecEnv):
         self.parts = len(holds["parts"])
         self.finger_of = tensor([list(hold_scene.FINGERS).index(p) for p in holds["parts"]], torch.long)
         from .hand_library import robot_chain
-        _, (wrist, axes, _) = robot_chain(mjm)
-        self.palm_axes = tensor(axes)
+        chain, (wrist, axes, palm_length) = robot_chain(mjm)
+        self.palm_axes, self.palm_length = tensor(axes), float(palm_length)
+        self.tip_bodies = tensor([chain[i][0] for i in TIPS.values()], torch.long)
+        self.tip_points = tensor(np.array([chain[i][1] for i in TIPS.values()]))
 
         # the holds' frames, on the device
         self.first, self.length = tensor(holds["first"], torch.long), tensor(holds["length"], torch.long)
@@ -161,6 +198,7 @@ class GpuHoldEnv(VecEnv):
         self.target_position, self.target_quat = tensor(holds["position"]), tensor(holds["quat"])
         self.gravity_frames = tensor(holds["gravity"])
         self.fingers = tensor(holds["fingers"], torch.bool)
+        self.truth_pinch = tensor(holds["pinch"])
         block = np.r_[True, (np.diff(holds["take"]) != 0) | (np.diff(holds["hand"]) != 0)]
         self.block_start = tensor(np.maximum.accumulate(np.where(block, np.arange(len(block)), 0)),
                                   torch.long)
@@ -188,7 +226,8 @@ class GpuHoldEnv(VecEnv):
         mjm, model, worlds = self.mjm, self.worlds.model, self.worlds
         fields = hold_scene.variant_fields(mujoco.MjSpec.from_string(_with_assets(str(self.holds["scene"]))),
                                            mjm)
-        rows = hold_scene.scaled(fields, variant, mass)
+        rows = hold_scene.scaled(fields, np.maximum(variant, 0), mass)
+        rows["geom_dataid"] = np.where(variant < 0, -1, rows["geom_dataid"])    # no object
         geom, body = mjm.geom(hold_scene.OBJECT).id, self.object_body_id()
         for names, index in ((hold_scene.GEOM_FIELDS, geom), (hold_scene.BODY_FIELDS, body)):
             for field in names:
@@ -254,22 +293,39 @@ class GpuHoldEnv(VecEnv):
 
         frame = self._frame()
         position, turn, joints, contact = self.errors(frame)
-        reward = (HOLD_WEIGHT + torch.exp(-position / POSITION_SCALE)
-                  + ROTATION_WEIGHT * torch.exp(-turn / ROTATION_SCALE)
-                  + JOINT_WEIGHT * torch.exp(-joints / JOINT_SCALE)
-                  + CONTACT_WEIGHT * contact
+        pinch, wanted = self.pinch(), self.truth_pinch[frame]
+        touching = wanted < TOUCH_PL
+        off = (pinch - wanted).abs()
+        touch = (off * touching).sum(dim=1) / torch.clamp(touching.sum(dim=1), min=1)
+        held = (HOLD_WEIGHT + torch.exp(-position / POSITION_SCALE)
+                + ROTATION_WEIGHT * torch.exp(-turn / ROTATION_SCALE)
+                + JOINT_WEIGHT * torch.exp(-joints / JOINT_SCALE)
+                + CONTACT_WEIGHT * contact)
+        free = (FREE_JOINT_WEIGHT * torch.exp(-joints / JOINT_SCALE)
+                + PINCH_WEIGHT * torch.exp(-off.mean(dim=1) / PINCH_SCALE)
+                + TOUCH_WEIGHT * torch.exp(-touch / TOUCH_SCALE) * touching.any(dim=1))
+        reward = (torch.where(self.free, free, held)
                   - RESIDUAL_COST * (action ** 2).sum(dim=1)
                   - CHANGE_COST * (change ** 2).sum(dim=1))
         self.change = change
-        dropped = (position > DROP_M) | unstable
+        dropped = ((position > DROP_M) & ~self.free) | unstable
         reward = torch.where(dropped, 0.0, reward)
         timed_out = (self.steps >= self.length[self.episode] - 1) & ~dropped
         supported = self._support() > 0
-        log = {"/hold/position_mm": 1000 * position.mean(), "/hold/turn_deg": torch.rad2deg(turn).mean(),
-               "/hold/joint_deg": torch.rad2deg(joints).mean(), "/hold/contact": contact.mean(),
-               "/hold/dropped": (dropped & ~supported).float().sum(),
-               "/hold/unstable": unstable.float().sum()}
-        rows = torch.stack([position, turn, joints, contact, dropped.float(), supported.float()], dim=1)
+        made = touching & (pinch < TOUCH_PL)
+        hold, loose = ~self.free, self.free & touching.any(dim=1)
+        log = {"/hold/position_mm": 1000 * position[hold].mean(), "/hold/turn_deg": torch.rad2deg(turn[hold]).mean(),
+               "/hold/joint_deg": torch.rad2deg(joints[hold]).mean(), "/hold/contact": contact[hold].mean(),
+               "/hold/dropped": (dropped & ~supported & hold).float().sum(),
+               "/hold/unstable": unstable.float().sum(),
+               "/pinch/joint_deg": torch.rad2deg(joints[self.free]).mean(),
+               "/pinch/touch_mm": 1000 * self.palm_length * touch[loose].mean(),
+               "/pinch/made": made[self.free].float().sum() / torch.clamp(touching[self.free].float().sum(), min=1)}
+        log = {key: value for key, value in log.items() if torch.isfinite(value)}
+        rows = torch.stack([position, turn, joints, contact, dropped.float(), supported.float(),
+                            self.free.float(), touching.sum(dim=1).float(), made.sum(dim=1).float(),
+                            (~touching).sum(dim=1).float(), (~touching & (pinch < TOUCH_PL)).sum(dim=1).float()],
+                           dim=1)
         done = timed_out | dropped
         if done.any():
             self._reset(torch.nonzero(done).squeeze(1))
@@ -295,6 +351,13 @@ class GpuHoldEnv(VecEnv):
         contact = (touching * wanted).sum(dim=1) / torch.clamp(wanted.sum(dim=1), min=1)
         return position, turn, joints, contact
 
+    def pinch(self):
+        """The robot's thumb tip to its index, middle and ring tips (envs,
+        3), palm lengths."""
+        rotations = self.worlds.xmat[:, self.tip_bodies].reshape(self.num_envs, -1, 3, 3)
+        tips = self.worlds.xpos[:, self.tip_bodies] + torch.einsum("npij,pj->npi", rotations, self.tip_points)
+        return torch.linalg.norm(tips[:, 1:] - tips[:, :1], dim=-1) / self.palm_length
+
     # ------------------------------------------------------------ the support
     def _support(self):
         """How much of the object's weight is carried for it, (envs,): 1 at
@@ -306,7 +369,7 @@ class GpuHoldEnv(VecEnv):
         its weight carried, and a spring and damper towards where it should
         be at `frame` - all times what is left of the support at `seconds`
         into the episode."""
-        left = torch.clamp(1.0 - seconds / ASSIST_S, min=0.0)[:, None]
+        left = torch.where(self.free, 1.0, torch.clamp(1.0 - seconds / ASSIST_S, min=0.0))[:, None]
         frame = torch.minimum(frame, self.first[self.episode] + self.length[self.episode] - 1)
         position = self.qpos[:, self.object_qpos:self.object_qpos + 3]
         quat = self.qpos[:, self.object_qpos + 3:self.object_qpos + 7]
@@ -335,10 +398,10 @@ class GpuHoldEnv(VecEnv):
         if self.cycle:
             episode = self.world_episode[envs]
         else:
-            variant = self.variant[envs]
+            pool = self.variant[envs] + 1
             pick = (torch.rand(len(envs), generator=self.generator, device=self.device)
-                    * self.pool_size[variant]).long()
-            episode = self.pool[variant, pick]
+                    * self.pool_size[pool]).long()
+            episode = self.pool[pool, pick]
         self.episode[envs] = episode
         self.draw[envs] = (torch.randint(0, self.read.shape[0], (len(envs),), generator=self.generator,
                                          device=self.device) if self.randomize else 0)
@@ -380,8 +443,8 @@ class GpuHoldEnv(VecEnv):
             (position - self.target_position[frame]) @ self.palm_axes,
             _six(_quat_matrices(quat)), _six(_quat_matrices(self.target_quat[frame])),
             self.qvel[:, self.object_dof:self.object_dof + 6], self.truth[frame],
-            self.qvel[:, self.joint_dof], self._support()[:, None],
-            self.sensordata[:, :self.parts], self.worlds.scales], dim=1)
+            self.truth_pinch[frame], self.qvel[:, self.joint_dof], self._support()[:, None],
+            self.free[:, None].float(), self.sensordata[:, :self.parts], self.worlds.scales], dim=1)
         return TensorDict({"policy": policy.float(), "privileged": privileged.float()},
                           batch_size=[self.num_envs], device=self.device)
 
@@ -443,22 +506,31 @@ def train(bundle, folder, envs, iterations, config, writer_config, device="cuda:
 
 
 def evaluate(bundle, folder, checkpoint, config, device="cuda:0", physics=None):
-    """The reachable episodes of the people never fitted on, and as many of
-    the fitted people's, each once, nominal physics, the reader's first
-    draw - moved by the trained policy, by the reader's joints alone, and
-    by them plus the start's closing held: {"test" | "fitted": {mode:
-    {held (share of episodes kept to their end), held_s (mean seconds
-    kept after the support), position_mm, turn_deg, joint_deg (medians of
-    the frames held), contact (mean), episodes}}}."""
+    """Each set once - the reachable holds of the people never fitted on and
+    as many of the fitted people's, the free clips of FreiHAND's evaluation
+    poses and as many of its training poses' - nominal physics, the
+    reader's first draw, the hand moved by the trained policy, by the
+    reader's joints alone, and (holds) by them plus the start's closing
+    held: {set: {mode: ...}}. Holds: held (share kept to their end), held_s
+    (mean seconds kept after the support), position_mm, turn_deg, joint_deg
+    (medians of the frames held), contact (mean). Free clips: joint_deg
+    (median), touches made (of the person's thumb-on-fingertip frames, the
+    share the robot's thumb touches too) and false (of the rest, the share
+    it touches anyway)."""
     from rsl_rl.runners import OnPolicyRunner
 
     holds = dict(np.load(Path(bundle) / "holds.npz"))
-    reachable = holds["reachable"]
-    test = np.flatnonzero(reachable & holds["test"])
-    fitted = np.flatnonzero(reachable & ~holds["test"])
-    fitted = np.random.default_rng(0).choice(fitted, size=min(len(test), len(fitted)), replace=False)
+    rng = np.random.default_rng(0)
+    sets = {}
+    for kind, chosen in (("holds", holds["reachable"] & (holds["variant"] >= 0)),
+                         ("free clips", holds["variant"] < 0)):
+        test = np.flatnonzero(chosen & holds["test"])
+        fitted = np.flatnonzero(chosen & ~holds["test"])
+        sets[f"{kind}, never trained on"] = test
+        sets[f"{kind}, trained on"] = rng.choice(fitted, size=min(len(test), len(fitted)), replace=False)
     out = {}
-    for name, episodes in (("test", test), ("fitted", fitted)):
+    for name, episodes in sets.items():
+        free = name.startswith("free")
         env = GpuHoldEnv(bundle, envs=len(episodes), episodes=episodes, randomize=False, cycle=True,
                          device=device, **(physics or {}))
         cfg = json.loads(json.dumps(config))
@@ -467,7 +539,7 @@ def evaluate(bundle, folder, checkpoint, config, device="cuda:0", physics=None):
         runner.load(str(checkpoint), load_cfg={"actor": True}, strict=True)
         policy = runner.get_inference_policy()
         out[name] = {}
-        for mode in MODES:
+        for mode in MODES[:2] if free else MODES:
             env.mode = mode
             with torch.inference_mode():
                 obs = env.restart()
@@ -482,6 +554,13 @@ def evaluate(bundle, folder, checkpoint, config, device="cuda:0", physics=None):
                     dropped |= new & ~extras["time_outs"]
                     finished |= new
             rows, active = torch.stack(rows).numpy(), torch.stack(active).numpy()
+            if free:
+                out[name][mode] = {
+                    "episodes": int(len(episodes)),
+                    "joint_deg": float(np.degrees(np.median(rows[..., 2][active]))),
+                    "touches_made": float(rows[..., 8][active].sum() / max(rows[..., 7][active].sum(), 1)),
+                    "touches_false": float(rows[..., 10][active].sum() / max(rows[..., 9][active].sum(), 1))}
+                continue
             kept = active & (rows[..., 4] == 0)
             after = kept & (rows[..., 5] == 0)
             out[name][mode] = {

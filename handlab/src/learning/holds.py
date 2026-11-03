@@ -38,16 +38,29 @@ on with the servos on the retargeted motion (`drift_mm`), and on it plus
 the closing (`grip_drift_mm`): how far the object went. A grip that holds
 is what the physics policy has to find (gpu_holds.py).
 
+And free hands, no object: the thumb meeting fingertips, which the reader
+means but does not make (its motion's thumb stays short of them). Clips of
+FreiHAND's poses as the reader's are (reader._pose_clip: key poses, minimum
+jerk between), but with PINCH_SHARE of the key poses ones where the thumb
+touches a fingertip - FreiHAND has few (8% the index, 3% the middle, 1% the
+ring) - FREE_CLIPS of them from its training poses and, to test, its
+evaluation poses (the odd ones, as the reader's). Their object is out of
+the way (`variant` -1: no object), gravity the robot's own (the scene's
+-z), the reader's motion made as for the holds but nothing hidden.
+
     data/learning/intent/holds.npz
-        per frame (F) of the takes held in: joints (F, J) rad, retargeted;
+        per frame (F) of the takes held in, then of the free clips: joints
+        (F, J) rad, retargeted; pinch (F, 3) its thumb tip to the index,
+        middle and ring tips, palm lengths (handmotion's shape);
         position (F, 3) m and quat (F, 4), where the object is to be in the
         scene; gravity (F, 3) m/s^2 in the scene; fingers (F, 5) bool,
         GRAB's contacts by hold_scene.FINGERS; read (DRAWS, F, J) rad and
         meant (DRAWS, F, reader.INTENTS) float16, the reader's
-        per episode (E): first (frame), length, variant, subject, test (one
-        of the people never fitted on), qpos (E, nq), qvel (E, nv), grip
-        (E, J) the closing (servo order), reachable, drift_mm,
-        grip_drift_mm
+        per episode (E): first (frame), length, variant (-1 for a free
+        clip), subject ("freihand" or "freihand held out" for one), test
+        (people never fitted on, FreiHAND's evaluation poses), qpos (E,
+        nq), qvel (E, nv), grip (E, J) the closing (servo order),
+        reachable, drift_mm, grip_drift_mm (NaN for a free clip)
         variant_names (V,), meshes (scene.xml's), scene (MJCF), parts,
         joint_names (the frames' joints, in order), rate, made
 """
@@ -65,10 +78,10 @@ from scipy.spatial import ConvexHull
 from scipy.spatial.transform import Rotation
 
 from .. import robot as robot_module, settings
-from . import grab, hold_scene
+from . import grab, hand_library, hold_scene
 from . import motion_space as space_module
 from .hand_library import robot_chain
-from .handmotion import RATE, in_palm, palm_frame
+from .handmotion import RATE, TOUCH_PL, in_palm, palm_frame
 from .intent_pairs import FOLDER, WORKERS
 
 HOLDS = FOLDER / "holds.npz"
@@ -87,13 +100,18 @@ MAX_STEP_RAD = 0.1
 SQUEEZE_RAD = 0.2                # past touching: the servo presses with all its torque
 GRAVITY = np.array([0.0, 0.0, -9.81])        # GRAB's z is up
 MIRROR = np.diag([1.0, -1.0, 1.0])           # in_palm's: y -> -y
-TEST = space_module.GRAB_PEOPLE["grab held out"]
+TEST = space_module.GRAB_PEOPLE["grab held out"] + ("freihand held out",)
+FREE_CLIPS = {"freihand": ("training", 1500), "freihand held out": ("evaluation", 300)}
+PINCH_SHARE = 0.5
+PARK_M = 1.0                     # a free clip's object: this far below the wrist, colliding with nothing
 
 
 def build(progress=lambda done, total, text="": None):
     """Every hold of GRAB onto the robot; writes holds.npz, returns a
     summary."""
+    from . import intent_pairs
     from . import reader as reader_module
+    from .hand_library import HandModel
     from .motion_space import MotionSpace
     from .tracker_noise import TrackerNoise
 
@@ -152,14 +170,46 @@ def build(progress=lambda done, total, text="": None):
                     episodes["subject"].append(subject)
             count += b - a
         progress(k + 1, len(edges) - 1, f"holds: {hands['name'][t]}")
+
+    noise = TrackerNoise()
+    rng = np.random.default_rng(0)
+    park = wrist_r - [0.0, 0.0, PARK_M]
+    free = []
+    for subject, (part, number) in FREE_CLIPS.items():
+        pairs = dict(np.load(intent_pairs.FOLDER / f"freihand_labels_{part}.npz"))
+        rows = np.arange(len(pairs["joints"]))
+        if subject in TEST:
+            rows = rows[1::2]                          # the even ones set tracker_noise's size
+        person = in_palm(pairs["person"][rows].astype(float), intent_pairs.SIDE).astype(np.float32)
+        joints = pairs["joints"][rows]
+        pinches = np.flatnonzero(pairs["touching"][rows].any(1))
+        for _ in range(number):
+            size = int(rng.integers(*hand_library.POSES))
+            keys = np.where(rng.uniform(size=size) < PINCH_SHARE, rng.choice(pinches, size),
+                            rng.integers(len(joints), size=size))
+            clip = reader_module._pose_clip(person, joints, noise, rng, keys)
+            length = len(clip.robot)
+            frames["joints"].append(clip.robot)
+            frames["position"].append(np.repeat(park[None], length, 0).astype(np.float32))
+            frames["quat"].append(np.repeat([[1.0, 0.0, 0.0, 0.0]], length, 0).astype(np.float32))
+            frames["gravity"].append(np.repeat(GRAVITY[None], length, 0).astype(np.float32))
+            frames["fingers"].append(np.zeros((length, len(hold_scene.FINGERS)), bool))
+            frames["take"].append(np.full(length, -1 - len(free)))
+            frames["hand"].append(np.zeros(length, int))
+            free.append(clip)
+            episodes["first"].append(count)
+            episodes["length"].append(min(length, round(EPISODE_S * RATE)))
+            episodes["variant"].append(-1)
+            episodes["subject"].append(subject)
+            count += length
+        progress(1, 1, f"free clips: {subject}")
     frames = {key: np.concatenate(value) for key, value in frames.items()}
     episodes = {key: np.array(value) for key, value in episodes.items()}
+    frames["pinch"] = HandModel().kinematics.shapes(frames["joints"])[:, -3:].astype(np.float32)
 
     progress(0, 1, "the reader on the tracker's errors")
     space = MotionSpace(space_module.load())
     reader = reader_module.Reader(reader_module.load(), space)
-    noise = TrackerNoise()
-    rng = np.random.default_rng(0)
     read = np.zeros((DRAWS, count, labels["joints"].shape[-1]), np.float16)
     meant = np.zeros((DRAWS, count, reader_module.INTENTS), np.float16)
     for draw in range(DRAWS):
@@ -172,6 +222,12 @@ def build(progress=lambda done, total, text="": None):
             seen.append(s[0])
             found.append(f[0])
             truth.append(labels["joints"][a:b, hand].astype(np.float32))
+        for clip in free:
+            s, f = noise.corrupt(clip.person[None], clip.near[None],
+                                 np.zeros((1, len(clip.robot), 21), bool), rng)
+            seen.append(s[0])
+            found.append(f[0])
+            truth.append(clip.robot)
         made, likely = reader_module._follow_all(reader.net, reader.space, seen, found, truth)
         read[draw] = np.concatenate(made)
         meant[draw] = np.concatenate(likely)
@@ -180,9 +236,10 @@ def build(progress=lambda done, total, text="": None):
     friction = settings.section("object")["friction"]
     spec, parts = hold_scene.build(points, friction)
     xml = spec.to_xml().replace("  <default>\n    <default/>\n  </default>\n", "", 1)
+    held = episodes["variant"] >= 0
     jobs = [(int(v), *(frames[key][f:f + round(CHECK_S * RATE) + 1]
                        for key in ("joints", "position", "quat", "gravity", "fingers")))
-            for f, v in zip(episodes["first"], episodes["variant"])]
+            for f, v in zip(episodes["first"][held], episodes["variant"][held])]
     settled = []
     with get_context("spawn").Pool(WORKERS, initializer=_start, initargs=(points, friction)) as pool:
         for k, done in enumerate(pool.imap(_settle, jobs, chunksize=16)):
@@ -190,10 +247,20 @@ def build(progress=lambda done, total, text="": None):
             if k % 200 == 0 or k == len(jobs) - 1:
                 progress(k + 1, len(jobs), "settling the starts")
     model = spec.compile()
-    qpos, qvel, grip, reachable, drifts = zip(*settled)
-    drifts = 1000 * np.array(drifts, np.float32)
-    episodes.update(qpos=np.array(qpos, np.float32), qvel=np.array(qvel, np.float32),
-                    grip=np.array(grip, np.float32), reachable=np.array(reachable),
+    qpos = np.zeros((len(held), model.nq), np.float32)
+    qvel = np.zeros((len(held), model.nv), np.float32)
+    grip = np.zeros((len(held), model.nu), np.float32)
+    drifts = np.full((len(held), 2), np.nan, np.float32)
+    reachable = np.ones(len(held), bool)
+    q, v, g, r, d = zip(*settled)
+    qpos[held], qvel[held], grip[held], reachable[held] = q, v, g, r
+    drifts[held] = 1000 * np.array(d, np.float32)
+    hinge = model.jnt_qposadr[model.actuator_trnid[:, 0]]
+    obj = model.jnt_qposadr[model.joint(hold_scene.OBJECT).id]
+    for e in np.flatnonzero(~held):                    # a free clip: the hand as it starts, the object parked
+        qpos[e, hinge] = frames["joints"][episodes["first"][e]][hinge]
+        qpos[e, obj:obj + 3], qpos[e, obj + 3:obj + 7] = park, [1.0, 0.0, 0.0, 0.0]
+    episodes.update(qpos=qpos, qvel=qvel, grip=grip, reachable=reachable,
                     drift_mm=drifts[:, 0], grip_drift_mm=drifts[:, 1],
                     test=np.isin(episodes["subject"], TEST))
     np.savez_compressed(
@@ -227,7 +294,7 @@ def report(holds):
     """How many holds and how much of each kept with no policy."""
     lines = []
     for name, test in (("fitted people", False), ("people never fitted", True)):
-        rows = holds["test"] == test
+        rows = (holds["test"] == test) & (holds["variant"] >= 0)
         replays = []
         for how, key in (("the retargeted motion", "drift_mm"), ("it plus the start's grip", "grip_drift_mm")):
             drift = holds[key][rows]
@@ -235,6 +302,12 @@ def report(holds):
         lines.append(f"{name}: {rows.sum()} holds ({np.mean(holds['reachable'][rows]):.0%} reachable), "
                      f"{len(np.unique(holds['variant'][rows]))} objects (by person and side); the object after {CHECK_S:g} s with no policy, the servos on "
                      + "; on ".join(replays))
+    for name, test in (("free clips", False), ("free clips to test", True)):
+        rows = (holds["test"] == test) & (holds["variant"] < 0)
+        frames = np.concatenate([np.arange(f, f + n) for f, n in zip(holds["first"][rows], holds["length"][rows])])
+        touch = holds["pinch"][frames] < TOUCH_PL
+        lines.append(f"{name}: {rows.sum()}, the thumb on the index, middle, ring in "
+                     + ", ".join(f"{share:.0%}" for share in touch.mean(0)) + " of frames")
     return "\n".join(lines)
 
 
