@@ -128,7 +128,8 @@ def render(folder, out):
     video.release()
     latest = np.searchsorted(hands["time"], read_out["time"] + hands["time"][0], side="right") - 1
     height = VIEW[1]
-    writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"mp4v"), RATE,
+    # H.264, which browsers and QuickTime play (OpenCV's "mp4v" is MPEG-4 Part 2: they do not).
+    writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"avc1"), RATE,
                              (round(frames[0].shape[1] * height / frames[0].shape[0]) + 2 * VIEW[0], height))
     thresholds = np.array(reader_module.load()["thresholds"])
     with mujoco.Renderer(model, VIEW[1], VIEW[0]) as renderer:
